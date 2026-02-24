@@ -7,19 +7,17 @@
 import argparse
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 from tqdm import tqdm
 
 # 尝试导入自定义验证函数，若失败则提供占位函数
 try:
-    # 假设这些自定义函数存在
     from utils.checkJson_travel_analysis import check_travel_analysis
     from utils.common_tools import read_json_file, get_prompt_str, use_model, str2json, get_timestamp
 except ImportError:
     print("警告：未找到 common_tools、checkJson_travel_analysis，使用默认验证（始终通过）")
-
 
 import configparser
 
@@ -27,13 +25,10 @@ config = configparser.ConfigParser()
 config.read('config.ini', encoding='utf-8')
 
 # ---------- 默认配置 ----------
-# DEFAULT_OUTPUT_TXT_PATH = "C:/Users/13187/Desktop/travelAnalysis_" + get_timestamp("%Y%m%d-%H%M%S") + ".txt"
-
-# 文件信息配置
 DEFAULT_INPUT_JSON_PATH = config['file_path']['crawler_file']
 DEFAULT_PROMPT_TRAVEL_PATH = config['file_path']['travel_travel_prompt']
 DEFAULT_PROMPT_LABEL_PATH = config['file_path']['travel_label_prompt']
-DEFAULT_OUTPUT_TXT_PATH = config['model_output']['travel_analysis_output_path']
+DEFAULT_OUTPUT_PATH = config['model_output']['travel_analysis_output_path']  # 建议配置为 .json 后缀
 
 # 模型配置
 model_name = config['model_config']['model_name']
@@ -41,9 +36,9 @@ DEFAULT_OLLAMA_BASE_URL = config['model_config']['model_url']
 DEFAULT_OLLAMA_API_KEY = config['model_config']['api_key']
 
 # 模型重试次数
-MAX_RETRIES_TRAVEL = config['travel_analysis_retry']['MAX_RETRIES_TRAVEL']      # 旅行分析模型调用最大重试次数
-MAX_RETRIES_LABEL = config['travel_analysis_retry']['MAX_RETRIES_LABEL']       # 景点标注模型调用最大重试次数
-DESC_MIN_LENGTH = config['travel_analysis_retry']['DESC_MIN_LENGTH']        # 描述最短长度要求
+MAX_RETRIES_TRAVEL = int(config['travel_analysis_retry']['MAX_RETRIES_TRAVEL'])
+MAX_RETRIES_LABEL = int(config['travel_analysis_retry']['MAX_RETRIES_LABEL'])
+DESC_MIN_LENGTH = int(config['travel_analysis_retry']['DESC_MIN_LENGTH'])
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -76,7 +71,6 @@ def process_single_record(
             if travel_dict is None:
                 logger.warning(f"旅行分析 JSON 解析失败，重试 {attempt+1}/{MAX_RETRIES_TRAVEL}")
                 continue
-            # 检查是否包含 journeys 字段且非空
             journeys = travel_dict.get("journeys", [])
             if not isinstance(journeys, list) or len(journeys) == 0:
                 logger.warning(f"旅行分析结果中 journeys 为空，重试 {attempt+1}/{MAX_RETRIES_TRAVEL}")
@@ -97,12 +91,10 @@ def process_single_record(
             continue
         scenic_intro = spot.get("scenic_intro", "")
         scenic_name = spot.get("scenic", "")
-        if not scenic_intro:  # 无介绍则跳过标注
+        if not scenic_intro:
             continue
 
-        # 构建标注输入文本
         spot_text = f"{scenic_name}--{scenic_intro}"
-
         label_success = False
         for attempt in range(MAX_RETRIES_LABEL):
             try:
@@ -111,7 +103,6 @@ def process_single_record(
                 if label_dict is None:
                     logger.warning(f"景点标注 JSON 解析失败，重试 {attempt+1}/{MAX_RETRIES_LABEL}")
                     continue
-                # 提取标签
                 label1 = label_dict.get("最倾向一级标签", "")
                 label2 = label_dict.get("最倾向二级标签", "")
                 spot["tendency_label_1"] = label1
@@ -152,8 +143,8 @@ def main():
     parser = argparse.ArgumentParser(description="旅行文案分析与景点标注工具")
     parser.add_argument("--input_json", type=str, default=DEFAULT_INPUT_JSON_PATH,
                         help=f"输入JSON文件路径 (默认: {DEFAULT_INPUT_JSON_PATH})")
-    parser.add_argument("--output_txt", type=str, default=None,
-                        help=f"输出TXT文件路径，若不指定则自动生成带时间戳的文件名 (默认自动生成)")
+    parser.add_argument("--output", type=str, default=None,
+                        help=f"输出JSON文件路径，若不指定则使用配置文件中的路径 (默认: {DEFAULT_OUTPUT_PATH})")
     parser.add_argument("--prompt_travel", type=str, default=DEFAULT_PROMPT_TRAVEL_PATH,
                         help=f"旅行分析提示词文件路径 (默认: {DEFAULT_PROMPT_TRAVEL_PATH})")
     parser.add_argument("--prompt_label", type=str, default=DEFAULT_PROMPT_LABEL_PATH,
@@ -164,14 +155,13 @@ def main():
                         help=f"Ollama API密钥 (默认: {DEFAULT_OLLAMA_API_KEY})")
     args = parser.parse_args()
 
-    # 如果未指定输出文件路径，则使用带时间戳的默认路径
-    output_txt_path = args.output_txt if args.output_txt else DEFAULT_OUTPUT_TXT_PATH
+    output_path = args.output if args.output else DEFAULT_OUTPUT_PATH
 
     # 1. 读取数据
     data = read_json_file(args.input_json)
     logger.info(f"成功读取 {len(data)} 条记录")
 
-    # 2. 初始化 OpenAI 客户端（指向本地 Ollama）
+    # 2. 初始化 OpenAI 客户端
     client = OpenAI(base_url=args.ollama_url, api_key=args.ollama_api_key)
 
     # 3. 预读取提示词文件
@@ -179,21 +169,23 @@ def main():
     prompt_label = get_prompt_str(args.prompt_label)
 
     success_count = 0
-    # 4. 打开输出文件（追加模式）
-    with open(output_txt_path, 'a', encoding='utf-8') as f:
-        for record in tqdm(data, desc="处理进度"):
-            result = process_single_record(record, client, prompt_travel, prompt_label)
-            if result is not None:
-                # 将字典转为 JSON 字符串（确保双引号）
-                json_str = json.dumps(result, ensure_ascii=False)
-                f.write(json_str + ',\n')
-                f.flush()
-                success_count += 1
-                logger.debug(f"成功写入一条记录，累计成功数: {success_count}")
-            else:
-                logger.debug(f"记录处理失败，已跳过")
+    results: List[Dict[str, Any]] = []  # 收集所有成功处理的结果
 
-    logger.info(f"处理完成，成功写入 {success_count} 条记录到 {output_txt_path}")
+    # 4. 逐条处理并收集
+    for record in tqdm(data, desc="处理进度"):
+        result = process_single_record(record, client, prompt_travel, prompt_label)
+        if result is not None:
+            results.append(result)
+            success_count += 1
+            logger.debug(f"成功处理一条记录，累计成功数: {success_count}")
+        else:
+            logger.debug(f"记录处理失败，已跳过")
+
+    # 5. 一次性写入完整的 JSON 数组文件
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)  # indent=2 使输出更可读
+
+    logger.info(f"处理完成，成功写入 {success_count} 条记录到 {output_path}")
 
 
 if __name__ == "__main__":

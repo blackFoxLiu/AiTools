@@ -198,7 +198,6 @@ def main():
     logging.info(f"总景点数: {total}, 分页数: {total_pages}")
 
     # 打开输出文件（覆盖模式）
-    full_path = os.path.join(rag_file_path, SCENIC_INFO_FILE)
     with open(os.path.join(rag_file_path, SCENIC_INFO_FILE), 'w', encoding='utf-8') as f_scenic, \
          open(os.path.join(rag_file_path, TOOLS_INFO_FILE), 'w', encoding='utf-8') as f_tools, \
          open(os.path.join(rag_file_path, HOTELS_INFO_FILE), 'w', encoding='utf-8') as f_hotels:
