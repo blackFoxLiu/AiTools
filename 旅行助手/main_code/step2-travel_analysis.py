@@ -64,37 +64,31 @@ def process_single_record(
 
     # ---------- 第一步：旅行分析（带重试）----------
     travel_result = None
-    for attempt in range(MAX_RETRIES_TRAVEL):
-        try:
-            travel_output = use_model(client, prompt_travel, desc)
-            travel_dict = str2json(travel_output)
-            if travel_dict is None:
-                logger.warning(f"旅行分析 JSON 解析失败，重试 {attempt+1}/{MAX_RETRIES_TRAVEL}")
-                continue
-            journeys = travel_dict.get("journeys", [])
-            if not isinstance(journeys, list) or len(journeys) == 0:
-                logger.warning(f"旅行分析结果中 journeys 为空，重试 {attempt+1}/{MAX_RETRIES_TRAVEL}")
-                continue
-            travel_result = travel_dict
-            break
-        except Exception as e:
-            logger.error(f"旅行分析调用异常 (attempt {attempt+1}): {e}")
+    try:
+        travel_output = use_model(client, prompt_travel, desc)
+        travel_dict = str2json(travel_output)
+        if travel_dict is None:
+            logger.warning(f"旅行分析 JSON 解析失败")
+            return travel_result
+        main_scenic_list = travel_dict.get("main_scenic_list", [])
+        if not isinstance(main_scenic_list, list) or len(main_scenic_list) == 0:
+            logger.warning(f"旅行分析结果中 main_scenic_list 为空")
+            return None
+        travel_result = travel_dict
+    except Exception as e:
+        logger.error(f"旅行分析调用异常: {e}")
 
     if travel_result is None:
         logger.error(f"记录 {record.get('note_id', '未知')} 旅行分析失败，跳过")
         return None
 
     # ---------- 第二步：对每个景点进行标注（独立重试，失败跳过该景点）----------
-    journeys = travel_result.get("journeys", [])
-    for spot in journeys:
-        if not isinstance(spot, dict):
+    main_scenic_list = travel_result.get("main_scenic_list", [])
+    for main_scenic in main_scenic_list:
+        main_scenic_name = main_scenic.get("main_scenic", "")
+        if len(main_scenic_name) == 0:
             continue
-        scenic_intro = spot.get("scenic_intro", "")
-        scenic_name = spot.get("scenic", "")
-        if not scenic_intro:
-            continue
-
-        spot_text = f"{scenic_name}--{scenic_intro}"
+        spot_text = f"{main_scenic_name}--{desc}"
         label_success = False
         for attempt in range(MAX_RETRIES_LABEL):
             try:
@@ -105,15 +99,15 @@ def process_single_record(
                     continue
                 label1 = label_dict.get("最倾向一级标签", "")
                 label2 = label_dict.get("最倾向二级标签", "")
-                spot["tendency_label_1"] = label1
-                spot["tendency_label_2"] = label2
+                main_scenic["tendency_label_1"] = label1
+                main_scenic["tendency_label_2"] = label2
                 label_success = True
                 break
             except Exception as e:
                 logger.error(f"景点标注异常 (attempt {attempt+1}): {e}")
 
         if not label_success:
-            logger.warning(f"景点 '{scenic_name}' 标注失败，跳过该景点标签")
+            logger.warning(f"景点 '{main_scenic_name}' 标注失败，跳过该景点标签")
 
     # ---------- 第三步：补充原始记录字段 ----------
     travel_result["desc"] = desc
@@ -126,14 +120,12 @@ def process_single_record(
 
     # ---------- 第四步：验证结果格式 ----------
     try:
-        is_valid, errors = check_travel_analysis(travel_result)
+        is_valid = check_travel_analysis(travel_result)
     except Exception as e:
         logger.error(f"验证函数执行异常: {e}")
         return None
-
     if not is_valid:
-        for err in errors:
-            logger.warning(f"验证失败: {err}")
+        logger.warning(f"验证失败")
         return None
 
     return travel_result
