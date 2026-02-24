@@ -6,6 +6,7 @@
 
 import json
 import logging
+import configparser
 
 from py2neo import Graph, Node, Subgraph
 
@@ -20,6 +21,16 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+config = configparser.ConfigParser()
+config.read('config.ini', encoding='utf-8')
+
+# 文件信息配置
+itinerary_output_path = config['model_output']['itinerary_output_path']
+neo4j_uri = config['neo4j']['neo4j_uri']
+account = config['neo4j']['account']
+password = config['neo4j']['password']
+DEFAULT_INPUT_JSON_PATH = config['model_output']['itinerary_output_path']
+
 
 class MedicalGraph:
     """
@@ -27,8 +38,8 @@ class MedicalGraph:
     """
 
     def __init__(self,
-                 json_path="C:/Users/13187/Desktop/itinerary_20260215-230440.json",
-                 neo4j_uri="bolt://localhost:7687",
+                 json_path=itinerary_output_path,
+                 neo4j_uri=neo4j_uri,
                  neo4j_auth=None):
         """
         初始化图数据库连接和路径
@@ -40,7 +51,7 @@ class MedicalGraph:
         self.data_path = json_path
 
         # Neo4j连接（推荐使用环境变量或配置文件传递密码）
-        self.g = Graph(neo4j_uri, auth=neo4j_auth or ("neo4j", "ao9qUcIetqiX2Mbr2BL0b7HYFPfYjkN8903E2bSuBEQ"))
+        self.g = Graph(neo4j_uri, auth=neo4j_auth or (account, password))
 
         # 从统计数据获取景点推荐信息
         self.travel_scenic_info = get_travel_info(self.data_path)
@@ -295,13 +306,6 @@ class MedicalGraph:
 
 
 if __name__ == '__main__':
-    import configparser
-
-    config = configparser.ConfigParser()
-    config.read('config.ini', encoding='utf-8')
-    # 文件信息配置
-    DEFAULT_INPUT_JSON_PATH = config['model_output']['itinerary_output_path']
-
     handler = MedicalGraph(json_path=DEFAULT_INPUT_JSON_PATH)
     handler.create_graphnodes()
     handler.create_graphrels()

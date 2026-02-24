@@ -9,7 +9,7 @@
 import argparse
 import json
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 
 from openai import OpenAI
 from tqdm import tqdm
@@ -17,35 +17,9 @@ from tqdm import tqdm
 # 尝试导入自定义验证函数，若失败则提供占位函数
 try:
     from utils.checkJson_travel_tools import checkJson_travel_tools
+    from utils.common_tools.py import read_prompt, read_json_file
 except ImportError:
     print("警告：未找到 checkJson_travel_tools，使用默认验证（始终通过）")
-
-
-# ---------------------------- 工具函数 ----------------------------
-def read_json_file(file_path: str) -> List[Dict]:
-    """读取JSON文件，返回数据列表"""
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"错误：文件不存在 - {file_path}")
-    except json.JSONDecodeError as e:
-        print(f"错误：JSON解析失败 - {file_path}\n{e}")
-    except Exception as e:
-        print(f"读取文件时发生未知错误：{e}")
-    return []
-
-
-def read_prompt(file_path: str) -> str:
-    """读取提示词文件"""
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        print(f"错误：提示词文件不存在 - {file_path}")
-    except Exception as e:
-        print(f"读取提示词文件失败：{e}")
-    return ""
 
 
 def get_timestamp(format_str: str = "%Y%m%d-%H%M%S") -> str:

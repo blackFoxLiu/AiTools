@@ -91,3 +91,16 @@ def get_model():
         base_url="http://localhost:11434/v1",  # Ollama的本地API地址
         api_key="ollama"  # 此处可填写任意非空字符串，因为本地服务通常无需鉴权[citation:6]
     )
+
+
+# 读取提示词文件
+def read_prompt(file_path: str) -> str:
+    """读取提示词文件"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        print(f"错误：提示词文件不存在 - {file_path}")
+    except Exception as e:
+        print(f"读取提示词文件失败：{e}")
+    return ""

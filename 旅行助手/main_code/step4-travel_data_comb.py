@@ -12,12 +12,6 @@ from py2neo import Graph
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# ==================== 配置信息 ====================
-NEO4J_CONFIG = {
-    "uri": "http://localhost:7474",
-    "user": "neo4j",
-    "password": "neo4j"
-}
 
 import configparser
 config = configparser.ConfigParser()
@@ -26,6 +20,17 @@ config.read('config.ini', encoding='utf-8')
 SCENIC_INFO_FILE = config['model_output']['SCENIC_INFO_FILE']
 TOOLS_INFO_FILE = config['model_output']['TOOLS_INFO_FILE']
 HOTELS_INFO_FILE = config['model_output']['HOTELS_INFO_FILE']
+neo4j_uri = config['neo4j']['neo4j_uri']
+account = config['neo4j']['account']
+password = config['neo4j']['password']
+
+# ==================== 配置信息 ====================
+NEO4J_CONFIG = {
+    "uri": neo4j_uri,
+    "user": account,
+    "password": password
+}
+
 
 PAGE_SIZE = 20  # 分页大小
 

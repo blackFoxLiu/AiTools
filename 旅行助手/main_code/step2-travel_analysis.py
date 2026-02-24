@@ -4,12 +4,13 @@
 旅行助手统计分析脚本
 """
 
+import argparse
 import json
 import logging
-import argparse
-from typing import Any, Dict, List, Optional
-from tqdm import tqdm
+from typing import Any, Dict, Optional
+
 from openai import OpenAI
+from tqdm import tqdm
 
 # 尝试导入自定义验证函数，若失败则提供占位函数
 try:
