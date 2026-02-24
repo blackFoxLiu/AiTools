@@ -29,7 +29,7 @@ itinerary_output_path = config['model_output']['itinerary_output_path']
 neo4j_uri = config['neo4j']['neo4j_uri']
 account = config['neo4j']['account']
 password = config['neo4j']['password']
-DEFAULT_INPUT_JSON_PATH = config['model_output']['itinerary_output_path']
+travel_analysis_output_path = config['model_output']['travel_analysis_output_path']
 
 
 class MedicalGraph:
@@ -38,7 +38,6 @@ class MedicalGraph:
     """
 
     def __init__(self,
-                 json_path=itinerary_output_path,
                  neo4j_uri=neo4j_uri,
                  neo4j_auth=None):
         """
@@ -48,13 +47,13 @@ class MedicalGraph:
         :param neo4j_auth: 认证元组 (user, password)
         """
         # 配置数据路径（如果未提供则使用默认）
-        self.data_path = json_path
+        self.data_path = itinerary_output_path
 
         # Neo4j连接（推荐使用环境变量或配置文件传递密码）
         self.g = Graph(neo4j_uri, auth=neo4j_auth or (account, password))
 
         # 从统计数据获取景点推荐信息
-        self.travel_scenic_info = get_travel_info(self.data_path)
+        self.travel_scenic_info = get_travel_info(travel_analysis_output_path)
 
         # 初始化数据容器（全部使用实例变量，避免类变量共享）
         self.scenic_set = set()               # 所有景点名称（唯一）
@@ -306,6 +305,6 @@ class MedicalGraph:
 
 
 if __name__ == '__main__':
-    handler = MedicalGraph(json_path=DEFAULT_INPUT_JSON_PATH)
+    handler = MedicalGraph()
     handler.create_graphnodes()
     handler.create_graphrels()
