@@ -20,16 +20,29 @@ from langchain_community.vectorstores import Chroma
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
 
+import configparser
+
+config = configparser.ConfigParser()
+config.read('config.ini', encoding='utf-8')
+
+# 文件信息配置
+model_name = config['model_config']['model_name']
+model_url = config['model_config']['model_url']
+
+# 编码模型
+embedding_model_nme = config['embedding_model']['model_name']
+
+
 # 初始化 Ollama LLM
 llm = Ollama(
-    model="deepseek-r1:14b",
-    base_url="http://127.0.0.1:11434",
+    model="model_name",
+    base_url="model_url",
     temperature=0.0,
 )
 
 # 初始化嵌入模型
 embedding_model = HuggingFaceEmbeddings(
-    model_name="D:/endedingModel/BAAI/bge-base-zh-v1___5",
+    model_name=embedding_model_nme,
     model_kwargs={'device': 'cpu'},
     encode_kwargs={'normalize_embeddings': True}
 )
