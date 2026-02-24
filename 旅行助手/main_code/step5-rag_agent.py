@@ -15,7 +15,6 @@ from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms.ollama import Ollama
 from langchain_community.vectorstores import Chroma
-from openai import OpenAI
 
 # 设置日志
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -26,7 +25,7 @@ import configparser
 config = configparser.ConfigParser()
 config.read('config.ini', encoding='utf-8')
 
-# 文件信息配置
+# 信息配置
 model_name = config['openai_model_config']['model_name']
 base_url = config['openai_model_config']['base_url']
 embedding_model_name = config['embedding_model']['model_name']
