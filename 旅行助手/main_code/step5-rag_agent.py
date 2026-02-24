@@ -57,8 +57,8 @@ DEFAULT_CONFIG = {
     'file_path.rag_eva_resp_prompt': './prompts/evaluation.txt',
     'file_path.rag_analysis_prompt': './prompts/analysis.txt',
     'file_path.rag_chat_prompt': './prompts/chat.txt',
-    'text_splitter.chunk_size': '500',
-    'text_splitter.chunk_overlap': '50',
+    'text_splitter.chunk_size': '70',
+    'text_splitter.chunk_overlap': '20',
     'text_splitter.separators': '\n',  # 多个分隔符用逗号分隔
     'retriever.k': '5',
 }

@@ -5,19 +5,20 @@
 """
 
 import logging
+import os
 from typing import Optional, Dict, List, Set
+import configparser
 
 from py2neo import Graph
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
-import configparser
 config = configparser.ConfigParser()
 config.read('config.ini', encoding='utf-8')
 # 文件信息配置
 SCENIC_INFO_FILE = config['model_output']['SCENIC_INFO_FILE']
+rag_file_path = config['file_path']['rag_file_path']
 TOOLS_INFO_FILE = config['model_output']['TOOLS_INFO_FILE']
 HOTELS_INFO_FILE = config['model_output']['HOTELS_INFO_FILE']
 neo4j_uri = config['neo4j']['neo4j_uri']
@@ -197,9 +198,10 @@ def main():
     logging.info(f"总景点数: {total}, 分页数: {total_pages}")
 
     # 打开输出文件（覆盖模式）
-    with open(SCENIC_INFO_FILE, 'w', encoding='utf-8') as f_scenic, \
-         open(TOOLS_INFO_FILE, 'w', encoding='utf-8') as f_tools, \
-         open(HOTELS_INFO_FILE, 'w', encoding='utf-8') as f_hotels:
+    full_path = os.path.join(rag_file_path, SCENIC_INFO_FILE)
+    with open(os.path.join(rag_file_path, SCENIC_INFO_FILE), 'w', encoding='utf-8') as f_scenic, \
+         open(os.path.join(rag_file_path, TOOLS_INFO_FILE), 'w', encoding='utf-8') as f_tools, \
+         open(os.path.join(rag_file_path, HOTELS_INFO_FILE), 'w', encoding='utf-8') as f_hotels:
 
         # 用于全局去重的from_to名称集合
         processed_from_to: Set[str] = set()
