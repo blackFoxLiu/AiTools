@@ -202,7 +202,7 @@ class RAGApplication:
                 template=analysis_template,
                 input_variables=["question", "retrieved_docs"]
             )
-            formatted_prompt = analysis_prompt.format(question=question, retrieved_docs=docs_text)
+            formatted_prompt = analysis_prompt.format(question=question, retrieved_docs=len(docs_text))
             response = self.llm.invoke(formatted_prompt)
             return response
         except Exception as e:

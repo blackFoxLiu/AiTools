@@ -5,6 +5,6 @@
 
     用户问题: "{question}"
 
-    检索到的相关文档片段数量: {len(retrieved_docs)}
+    检索到的相关文档片段数量: {retrieved_docs}
 
     请用简洁的语言回答。
