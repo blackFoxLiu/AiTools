@@ -16,6 +16,12 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms.ollama import Ollama
 from langchain_community.vectorstores import Chroma
 
+# 尝试导入自定义验证函数，若失败则提供占位函数
+try:
+    from utils.common_tools import get_prompt_str
+except ImportError:
+    print("警告：导入包失败")
+
 # 设置日志
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
@@ -32,6 +38,9 @@ embedding_model_name = config['embedding_model']['model_name']
 chroma_db_path = config['file_path']['chroma_db_path']
 rag_file_path = config['file_path']['rag_file_path']
 
+rag_eva_resp_prompt = config['file_path']['rag_eva_resp_prompt']
+rag_analysis_prompt = config['file_path']['rag_analysis_prompt']
+rag_chat_prompt = config['file_path']['rag_chat_prompt']
 
 # 初始化 Ollama LLM
 llm = Ollama(
@@ -48,17 +57,7 @@ embedding_model = HuggingFaceEmbeddings(
 )
 
 # 自定义提示模板
-prompt_template = """[INST]<<SYS>>
-You are a helpful AI assistant.
-<</SYS>>
-
-请根据以下上下文信息回答问题。如果上下文信息不足以回答问题，请说明。
-
-上下文:
-{context}
-
-问题: {question}
-[/INST]"""
+prompt_template = get_prompt_str(rag_chat_prompt)
 
 PROMPT = PromptTemplate(
     template=prompt_template, input_variables=["context", "question"]
@@ -68,18 +67,9 @@ PROMPT = PromptTemplate(
 # 添加问题分析函数
 def analyze_question_intent(question, retrieved_docs, llm):
     """分析大模型对问题的理解"""
-    analysis_prompt = f"""
-    请分析以下用户问题，并回答：
-    1. 用户可能在询问什么？
-    2. 问题的核心意图是什么？
-    3. 基于检索到的文档，这个问题是否容易回答？
-
-    用户问题: "{question}"
-
-    检索到的相关文档片段数量: {len(retrieved_docs)}
-
-    请用简洁的语言回答。
-    """
+    analysis_prompt = PromptTemplate(
+        template=get_prompt_str(rag_analysis_prompt), input_variables=[question, retrieved_docs]
+    )
 
     try:
         analysis_response = llm.invoke(analysis_prompt)
@@ -201,19 +191,8 @@ def main():
 
         # 添加回答质量评估
         print('\n' + '📊 回答质量评估:')
-        evaluation_prompt = f"""
-        请评估以下问答对的质量：
-    
-        问题: "{query}"
-        回答: "{result['result']}"
-    
-        请从以下维度评估：
-        1. 回答的相关性
-        2. 回答的完整性
-        3. 是否基于提供的上下文
-    
-        用简洁的语言给出评估。
-        """
+        template_prompt = get_prompt_str(rag_eva_resp_prompt)
+        evaluation_prompt = template_prompt.format(query=query, result=len(result['result']))
 
         try:
             evaluation_response = llm.invoke(evaluation_prompt)

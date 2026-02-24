@@ -17,7 +17,7 @@ from tqdm import tqdm
 # 尝试导入自定义验证函数，若失败则提供占位函数
 try:
     from utils.checkJson_travel_tools import checkJson_travel_tools
-    from utils.common_tools.py import read_prompt, read_json_file
+    from utils.common_tools import read_prompt, read_json_file
 except ImportError:
     print("警告：未找到 checkJson_travel_tools，使用默认验证（始终通过）")
 
