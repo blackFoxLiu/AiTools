@@ -20,7 +20,6 @@ def checkJson_travel_tools(data: Dict[str, Any]) -> bool:
 
     # ---------- 根字段验证 ----------
     root_schema = {
-        'departure_key': 'str',
         'provincial': 'str',
         'transportation': 'list',
         'hotels': 'list',
@@ -114,7 +113,6 @@ if __name__ == '__main__':
         # 演示：使用允许空值的样例 JSON
         demo_json = """
 {
-  "departure_key": "喀纳斯湖",
   "provincial": "乌鲁木齐",
   "transportation": [
     {

@@ -108,6 +108,7 @@ def get_travel_info(json_file):
         for sub_dict_key in rst_structure[dict_key].keys():
             tmp_travel_info = rst_structure[dict_key][sub_dict_key]
             travel_dict[sub_dict_key] = {
+                "provincial": dict_key,
                 "season": find_max_cnt(tmp_travel_info["cnt_season"]),
                 "suit_months_range": find_max_cnt(tmp_travel_info["suit_months_range"]),
                 "recommand": find_max_cnt(tmp_travel_info.get("recommand", {})),

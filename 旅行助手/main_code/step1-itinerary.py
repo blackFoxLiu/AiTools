@@ -98,6 +98,7 @@ def process_record(record: Dict, client: OpenAI,
     transportation = tools_data.get("transportation", [])
     hotels = tools_data.get("hotels", [])
     if not transportation and not hotels:
+        print(tools_response)
         print("提示：交通和住宿均为空，跳过")
         return None
 
@@ -190,6 +191,7 @@ def main():
                 results.append(result)
                 success_count += 1
                 tqdm.write(f"成功处理 {success_count} 条")
+                print(result)
             else:
                 error_count += 1
         except Exception as e:

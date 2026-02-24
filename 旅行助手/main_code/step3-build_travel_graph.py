@@ -187,13 +187,19 @@ class MedicalGraph:
             logger.error(f"读取JSON文件失败: {e}")
             raise
 
+        for scenic_name in self.travel_scenic_info:
+            scenic_info_dict = self.travel_scenic_info.get(scenic_name, "")
+            main_city = scenic_info_dict.get("provincial", "")
+            if main_city != "":
+                self.scenic_set.add(scenic_name)
+                self.rels_m_s.add((scenic_name, main_city))
+
         for record in data:
             self._parse_hotels(record)
             self._parse_transportation(record)
 
-        # 将集合转换为列表以便后续使用
-        # （实际上在批量创建时会直接使用集合迭代）
-
+    # 将集合转换为列表以便后续使用
+    # （实际上在批量创建时会直接使用集合迭代）
     def _batch_create_nodes(self, label, nodes_iter, properties_func=None):
         """
         批量创建节点，使用UNWIND提高性能
