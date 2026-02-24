@@ -1,0 +1,11 @@
+[INST]<<SYS>>
+You are a helpful AI assistant.
+<</SYS>>
+
+请根据以下上下文信息回答问题。如果上下文信息不足以回答问题，请说明。
+
+上下文:
+{context}
+
+问题: {question}
+[/INST]
