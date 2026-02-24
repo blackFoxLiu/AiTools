@@ -28,6 +28,8 @@ config.read('config.ini', encoding='utf-8')
 # 文件信息配置
 model_name = config['model_config']['model_name']
 model_url = config['model_config']['model_url']
+rag_file_path = config['file_path']['rag_file_path']
+chroma_db_path = config['file_path']['chroma_db_path']
 
 # 编码模型
 embedding_model_nme = config['embedding_model']['model_name']
@@ -112,7 +114,7 @@ def load_and_process_documents(directory_path):
     return splits
 
 
-def setup_vector_store(documents, persist_directory="./chroma_db"):
+def setup_vector_store(documents, persist_directory=chroma_db_path):
     """设置向量数据库"""
     # 如果已存在持久化数据，则加载
     if os.path.exists(persist_directory):
@@ -135,7 +137,7 @@ def setup_vector_store(documents, persist_directory="./chroma_db"):
 
 def main():
     # 1. 加载和处理文档
-    documents = load_and_process_documents("C:/Users/13187/Desktop/travel")
+    documents = load_and_process_documents(rag_file_path)
 
     # 2. 设置向量数据库
     vector_store = setup_vector_store(documents)
@@ -192,8 +194,6 @@ def main():
 
         result = qa_chain({"query": query})
 
-        print(f"\n💬 最终回答: {result['result']}")
-
         # 显示使用的源文档
         print("\n📋 使用的源文档:")
         for i, source_doc in enumerate(result["source_documents"]):
@@ -220,6 +220,8 @@ def main():
             print(evaluation_response)
         except Exception as e:
             print(f"评估失败: {str(e)}")
+
+        print(f"\n💬 最终回答: {result['result']}")
 
 
 if __name__ == "__main__":
