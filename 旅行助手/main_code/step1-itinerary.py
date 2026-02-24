@@ -18,9 +18,6 @@ from tqdm import tqdm
 try:
     from utils.checkJson_travel_tools import checkJson_travel_tools
 except ImportError:
-    def checkJson_travel_tools(data: Dict) -> bool:
-        """默认验证函数（总是通过）"""
-        return True
     print("警告：未找到 checkJson_travel_tools，使用默认验证（始终通过）")
 
 

@@ -13,8 +13,9 @@ from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.llms import Ollama
+from langchain_community.llms.ollama import Ollama
 from langchain_community.vectorstores import Chroma
+from openai import OpenAI
 
 # 设置日志
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -26,25 +27,23 @@ config = configparser.ConfigParser()
 config.read('config.ini', encoding='utf-8')
 
 # 文件信息配置
-model_name = config['model_config']['model_name']
-model_url = config['model_config']['model_url']
-rag_file_path = config['file_path']['rag_file_path']
+model_name = config['openai_model_config']['model_name']
+base_url = config['openai_model_config']['base_url']
+embedding_model_name = config['embedding_model']['model_name']
 chroma_db_path = config['file_path']['chroma_db_path']
-
-# 编码模型
-embedding_model_nme = config['embedding_model']['model_name']
+rag_file_path = config['file_path']['rag_file_path']
 
 
 # 初始化 Ollama LLM
 llm = Ollama(
-    model="model_name",
-    base_url="model_url",
+    model=model_name,
+    base_url=base_url,
     temperature=0.0,
 )
 
 # 初始化嵌入模型
 embedding_model = HuggingFaceEmbeddings(
-    model_name=embedding_model_nme,
+    model_name=embedding_model_name,
     model_kwargs={'device': 'cpu'},
     encode_kwargs={'normalize_embeddings': True}
 )
@@ -194,6 +193,8 @@ def main():
 
         result = qa_chain({"query": query})
 
+        print(f"\n💬 最终回答: {result['result']}")
+
         # 显示使用的源文档
         print("\n📋 使用的源文档:")
         for i, source_doc in enumerate(result["source_documents"]):
@@ -220,8 +221,6 @@ def main():
             print(evaluation_response)
         except Exception as e:
             print(f"评估失败: {str(e)}")
-
-        print(f"\n💬 最终回答: {result['result']}")
 
 
 if __name__ == "__main__":
