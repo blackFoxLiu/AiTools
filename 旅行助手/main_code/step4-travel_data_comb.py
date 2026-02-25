@@ -49,45 +49,94 @@ class Neo4jConnection:
             raise
 
 
-# ==================== 批量查询（每页一次） ====================
-def fetch_scenic_page_data(db: Neo4jConnection, skip: int, limit: int):
+# ==================== 分页查询 Main_Scenic 基本信息 ====================
+def fetch_main_scenic_page(db: Neo4jConnection, skip: int, limit: int):
     """
-    执行复杂查询，返回一页 Main_Scenic 的完整数据：
-        - s: Main_Scenic 节点
-        - provincial_name: 所属省份名称（可能为 None）
-        - scenic_list: Scenic 节点列表
-        - hotels: ScenicHotel 节点列表
-        - from_to_list: 列表，每个元素为 {from_to: Scenic_From_To 节点, tools: TravelTool 节点列表}
+    获取一页 Main_Scenic 节点及其所属省份名称
+    返回列表，每个元素为 (scenic_node, provincial_name)
     """
     cql = """
         MATCH (s:Main_Scenic)
         OPTIONAL MATCH (s)-[:belong_to]->(p:Provincial)
-        OPTIONAL MATCH (s)-[:include]->(sc:Scenic)
-        WITH s, p.name AS provincial_name, collect(DISTINCT sc) AS scenic_list
-        OPTIONAL MATCH (s)-[:exists]->(h:ScenicHotel)
-        WITH s, provincial_name, scenic_list, collect(DISTINCT h) AS hotels
-        OPTIONAL MATCH (s)-[:from_to]-(f:Scenic_From_To)
-        WITH s, provincial_name, scenic_list, hotels, collect(DISTINCT f) AS from_to_nodes
-        RETURN s, provincial_name, scenic_list, hotels,
-               [f IN from_to_nodes | {
-                   from_to: f,
-                   tools: [(f)-[:tools]-(t:TravelTool) | t]
-               }] AS from_to_list
+        RETURN s, p.name AS provincial_name
         ORDER BY s.name
         SKIP $skip
         LIMIT $limit
     """
-    return db.run_query(cql, skip=skip, limit=limit)
+    cursor = db.run_query(cql, skip=skip, limit=limit)
+    results = []
+    for record in cursor:
+        results.append((record["s"], record["provincial_name"]))
+    return results
 
 
+# ==================== 查询 Scenic 节点 ====================
+def fetch_scenic_for_main_scenic(db: Neo4jConnection, main_scenic_name: str):
+    cql = """
+        MATCH (s:Main_Scenic {name: $name})<-[:include]-(sc:Scenic)
+        RETURN sc.name as spot_name
+    """
+    cursor = db.run_query(cql, name=main_scenic_name)
+    # 直接遍历游标，提取每个记录的 spot_name
+    result = [record["spot_name"] for record in cursor]
+    return result
+
+
+# ==================== 批量查询 ScenicHotel 节点 ====================
+def fetch_hotel_for_main_scenic(db: Neo4jConnection, main_scenic_names: List[str]):
+    """
+    根据 Main_Scenic 的 name 列表，查询每个 Main_Scenic 关联的所有 ScenicHotel 节点
+    返回字典：{ scenic_name: [hotel_node, ...] }
+    """
+    if not main_scenic_names:
+        return {}
+    cql = """
+        MATCH (s:Main_Scenic)-[:exists]->(h:ScenicHotel)
+        WHERE s.name IN $names
+        RETURN s.name AS scenic_name, collect(h) AS hotel_list
+    """
+    cursor = db.run_query(cql, names=main_scenic_names)
+    result_dict = {}
+    for record in cursor:
+        result_dict[record["scenic_name"]] = record["hotel_list"]
+    return result_dict
+
+
+# ==================== 批量查询 Scenic_From_To 及 TravelTool ====================
+def fetch_from_to_for_main_scenic(db: Neo4jConnection, main_scenic_names: List[str]):
+    """
+    根据 Main_Scenic 的 name 列表，查询与之关联的所有 Scenic_From_To 节点及其 TravelTool
+    返回列表，每个元素为 {"from_to": node, "tools": [tool_node, ...]}
+    注意：已通过 DISTINCT 对 from_to 去重，每个 from_to 只返回一次
+    """
+    if not main_scenic_names:
+        return []
+    cql = """
+        MATCH (s:Main_Scenic)-[:from_to]->(f:Scenic_From_To)
+        WHERE s.name IN $names
+        WITH DISTINCT f
+        OPTIONAL MATCH (f)-[:tools]-(t:TravelTool)
+        RETURN f, collect(t) AS tools
+    """
+    cursor = db.run_query(cql, names=main_scenic_names)
+    results = []
+    for record in cursor:
+        results.append({
+            "from_to": record["f"],
+            "tools": record["tools"]
+        })
+    return results
+
+
+# ==================== 获取 Main_Scenic 总数 ====================
 def get_scenic_count(db: Neo4jConnection) -> int:
     """获取 Main_Scenic 总数"""
     result = db.run_query("MATCH (s:Main_Scenic) RETURN count(s) AS total")
     return result.evaluate()
 
 
-# ==================== 信息生成函数（基于批量查询的数据） ====================
-def format_scenic_info(scenic_node, provincial_name: Optional[str]) -> str:
+# ==================== 信息生成函数（保持不变） ====================
+def format_scenic_info(scenic_node, provincial_name: Optional[str], spopt_nodes) -> str:
     """生成景点基本信息描述"""
     props = dict(scenic_node)
     name = props.get("name")
@@ -103,6 +152,8 @@ def format_scenic_info(scenic_node, provincial_name: Optional[str]) -> str:
     tendency1 = props.get("tendency_label_1")
     tendency2 = props.get("tendency_label_2")
     other_recommend = props.get("other_recommend")
+    spot_str = "包含景点包括" + "、".join(spopt_nodes)
+    parts.append(spot_str)
 
     if season:
         parts.append(f"适合季节为{season}")
@@ -213,28 +264,41 @@ def main():
             skip = page * PAGE_SIZE
             logging.info(f"处理第 {page+1}/{total_pages} 页 (skip={skip})")
 
-            # 执行批量查询，返回游标（流式处理）
-            cursor = fetch_scenic_page_data(db, skip, PAGE_SIZE)
+            # 1. 获取当前页的 Main_Scenic 基本信息
+            main_scenic_page = fetch_main_scenic_page(db, skip, PAGE_SIZE)
+            if not main_scenic_page:
+                continue
 
-            for record in cursor:
-                scenic_node = record["s"]
-                provincial_name = record["provincial_name"]
-                hotels = record["hotels"]          # 列表
-                from_to_list = record["from_to_list"]  # 列表
+            # 收集当前页所有 Main_Scenic 的 name
+            main_scenic_names = [node.get("name") for node, _ in main_scenic_page if node.get("name")]
 
-                scenic_name = dict(scenic_node).get("name", "")
+            # 3. 批量查询 ScenicHotel 节点
+            hotel_dict = fetch_hotel_for_main_scenic(db, main_scenic_names)
+
+            # 4. 批量查询 Scenic_From_To 节点（已去重）
+            from_to_list = fetch_from_to_for_main_scenic(db, main_scenic_names)
+
+            # 5. 处理交通信息（全局去重）
+            tools_lines = format_tools_info(from_to_list, processed_from_to)
+            for line in tools_lines:
+                f_tools.write(line + '\n')
+
+            # 6. 遍历每个 Main_Scenic，写入景点基本信息和酒店信息
+            for scenic_node, provincial_name in main_scenic_page:
+                scenic_name = scenic_node.get("name", "")
+                if not scenic_name:
+                    continue
+
+                # 2. 批量查询 Scenic 节点
+                spopt_nodes = fetch_scenic_for_main_scenic(db, scenic_name)
 
                 # 写入景点基本信息
-                scenic_info = format_scenic_info(scenic_node, provincial_name)
+                scenic_info = format_scenic_info(scenic_node, provincial_name, spopt_nodes)
                 if scenic_info:
                     f_scenic.write(scenic_info + '\n')
 
-                # 写入交通信息（去重）
-                tools_lines = format_tools_info(from_to_list, processed_from_to)
-                for line in tools_lines:
-                    f_tools.write(line + '\n')
-
-                # 写入酒店信息
+                # 写入酒店信息（从 hotel_dict 中取出对应列表）
+                hotels = hotel_dict.get(scenic_name, [])
                 hotels_lines = format_hotels_info(scenic_name, hotels)
                 for line in hotels_lines:
                     f_hotels.write(line + '\n')
