@@ -222,7 +222,6 @@ def main():
                 hotels = record["hotels"]          # 列表
                 from_to_list = record["from_to_list"]  # 列表
 
-                test = dict(scenic_node)
                 scenic_name = dict(scenic_node).get("name", "")
 
                 # 写入景点基本信息

@@ -113,8 +113,8 @@ class MedicalGraph:
             departure = trans.get("departure", "").strip()
             destination = trans.get("destination", "").strip()
 
-            if departure not in self.travel_scenic_info and \
-                    destination not in self.travel_scenic_info:
+            if departure not in self.main_scenic_set or \
+                    destination not in self.main_scenic_set:
                 continue
             trans_modes = trans.get("transportation_mode", [])
 
@@ -198,13 +198,13 @@ class MedicalGraph:
             raise
 
         for scenic_name in self.travel_scenic_info:
-            self.main_scenic_set.add(scenic_name)
             scenic_info_dict = self.travel_scenic_info.get(scenic_name, "")
             provincial = scenic_info_dict.get("provincial", "")
             if len(provincial) != 0:
                 self.rels_m_p.add((scenic_name, provincial))
                 self.main_city_set.add(provincial)
             main_scenic = scenic_info_dict.get("main_scenic", "")
+            self.main_scenic_set.add(main_scenic)
 
             self.rels_m_s.add((scenic_name, main_scenic))
             self.scenic_set.add(scenic_name)
