@@ -28,61 +28,75 @@ def get_statistics_structure(json_file):
         # 拿到省会 val
         for_provincial_val = travel_info.get("provincial", "")
         # 拿到景点 val
-        for_main_scenic_val = travel_info.get("main_scenic", "")
-        if len(for_main_scenic_val) == 0:
+        for_main_scenic_list = travel_info.get("main_scenic_list", [])
+        if len(for_main_scenic_list) == 0:
             continue
-        # 打卡点列表 val
-        journeys = travel_info.get("journeys", list)
 
-        use_provincial_val = save_structure.get(for_provincial_val, {})
-        save_structure[for_provincial_val] = use_provincial_val
+        for main_scenic in for_main_scenic_list:
+            # 打卡点列表 val
+            for_main_scenic = main_scenic.get("main_scenic", "")
+            journeys = main_scenic.get("journeys", [])
+            if not journeys:
+                journeys.append({
+                "scenic": for_main_scenic,
+                "season": [],
+                "suit_months_range": [],
+                "scenic_intro": "",
+                "time_required": "",
+                "other_recommend": ""
+            })
 
-        for journey in journeys:
-            for_scenic = journey.get("scenic", "")
-            if len(for_scenic) == 0:
-                continue
+            use_main_scenic_val = save_structure.get(for_main_scenic, {})
+            save_structure[for_main_scenic] = use_main_scenic_val
+            use_main_scenic_val["provincial"] = for_provincial_val
 
-            for_season = journey.get("season", [])
-            for_suit_months_range = journey.get("suit_months_range", [])
-            for_scenic_intro = journey.get("scenic_intro", [])
-            for_recommand = journey.get("recommand", [])
-            for_tendency_label_1 = journey.get("tendency_label_1", [])
-            for_tendency_label_2 = journey.get("tendency_label_2", [])
+            other_recommend = main_scenic.get("other_recommend", "")
+            use_main_scenic_val["other_recommend"] = use_main_scenic_val.get("other_recommend", "") + ";".join(other_recommend)
 
-            # 检查景点是否存在，如果存在，对信息进行重设
-            use_sub_scenic = use_provincial_val.get(for_scenic, {})
-            use_provincial_val[for_scenic] = use_sub_scenic
-            cnt_season = use_sub_scenic.get("cnt_season", {})
-            use_sub_scenic["cnt_season"] = cnt_season
-            for tmp_season in for_season:
-                cnt_season_nums = cnt_season.get(tmp_season, 0)
-                cnt_season[tmp_season] = cnt_season_nums+1
+            use_scenic_dict = use_main_scenic_val.get("scenic_dict", {})
+            use_main_scenic_val["scenic_dict"] = use_scenic_dict
 
-            cnt_suit_months_range = use_sub_scenic.get("suit_months_range", {})
-            use_sub_scenic["suit_months_range"] = cnt_suit_months_range
-            for tmp_suit_months_range in for_suit_months_range:
-                cnt_suit_months_range_nums = cnt_suit_months_range.get(tmp_suit_months_range, 0)
-                cnt_suit_months_range[tmp_suit_months_range] = cnt_suit_months_range_nums+1
+            for_tendency_label_1 = main_scenic.get("tendency_label_1", "")
+            for_tendency_label_2 = main_scenic.get("tendency_label_2", "")
 
-            use_scenic_intro = use_provincial_val.get("scenic_intro", "")
-            if len(for_scenic_intro) != 0:
-                use_scenic_intro = for_scenic_intro+";"+use_scenic_intro
-                use_sub_scenic["scenic_intro"] = use_scenic_intro
+            for journey in journeys:
+                for_scenic = journey.get("scenic", "")
+                if len(for_scenic) == 0:
+                    continue
 
-            if len(for_recommand) != 0:
-                cnt_recommand = use_provincial_val.get("recommand", {})
-                use_sub_scenic["recommand"] = cnt_recommand
-                cnt_recommand[for_recommand] = cnt_recommand.get(for_recommand, 0) + 1
+                use_scenic_val = use_scenic_dict.get(for_scenic, {})
+                use_scenic_dict[for_scenic] = use_scenic_val
 
-            if isinstance(for_tendency_label_1, list) or isinstance(for_tendency_label_2, list):
-                continue
-            cnt_tendency_label_1 = use_provincial_val.get("tendency_label_1", {})
-            use_sub_scenic["tendency_label_1"] = cnt_tendency_label_1
-            cnt_tendency_label_1[for_tendency_label_1] = cnt_tendency_label_1.get(for_tendency_label_1, 0) + 1
+                for_season = journey.get("season", [])
+                for_suit_months_range = journey.get("suit_months_range", [])
+                for_scenic_intro = journey.get("scenic_intro", [])
 
-            cnt_tendency_label_2 = use_provincial_val.get("tendency_label_2", {})
-            use_sub_scenic["tendency_label_2"] = cnt_tendency_label_2
-            cnt_tendency_label_2[for_tendency_label_2] = cnt_tendency_label_2.get(for_tendency_label_2, 0) + 1
+                cnt_season = use_scenic_val.get("cnt_season", {})
+                use_scenic_val["cnt_season"] = cnt_season
+                for tmp_season in for_season:
+                    cnt_season_nums = cnt_season.get(tmp_season, 0)
+                    cnt_season[tmp_season] = cnt_season_nums+1
+
+                cnt_suit_months_range = use_scenic_val.get("suit_months_range", {})
+                use_scenic_val["suit_months_range"] = cnt_suit_months_range
+                for tmp_suit_months_range in for_suit_months_range:
+                    cnt_suit_months_range_nums = cnt_suit_months_range.get(tmp_suit_months_range, 0)
+                    cnt_suit_months_range[tmp_suit_months_range] = cnt_suit_months_range_nums+1
+
+                use_scenic_intro = use_scenic_val.get("scenic_intro", "")
+                if len(for_scenic_intro) != 0:
+                    use_scenic_intro = for_scenic_intro+";"+use_scenic_intro
+                    use_scenic_val["scenic_intro"] = use_scenic_intro
+
+                if isinstance(for_tendency_label_1, list) or isinstance(for_tendency_label_2, list):
+                    continue
+                cnt_tendency_label_1 = use_scenic_val.get("tendency_label_1", {})
+                use_scenic_val["tendency_label_1"] = cnt_tendency_label_1
+                cnt_tendency_label_1[for_tendency_label_1] = cnt_tendency_label_1.get(for_tendency_label_1, 0) + 1
+
+                cnt_tendency_label_2 = use_scenic_val.get("tendency_label_2", {})
+                use_scenic_val["tendency_label_2"] = cnt_tendency_label_2
+                cnt_tendency_label_2[for_tendency_label_2] = cnt_tendency_label_2.get(for_tendency_label_2, 0) + 1
     return save_structure
 
 
@@ -105,20 +119,27 @@ def get_travel_info(json_file):
     rst_structure = get_statistics_structure(json_file)
     travel_dict = dict()
     for dict_key in rst_structure.keys():
-        for sub_dict_key in rst_structure[dict_key].keys():
-            tmp_travel_info = rst_structure[dict_key][sub_dict_key]
-            travel_dict[sub_dict_key] = {
-                "provincial": dict_key,
-                "season": find_max_cnt(tmp_travel_info["cnt_season"]),
-                "suit_months_range": find_max_cnt(tmp_travel_info["suit_months_range"]),
-                "recommand": find_max_cnt(tmp_travel_info.get("recommand", {})),
-                "tendency_label_1": find_max_cnt(tmp_travel_info.get("tendency_label_1", {})),
-                "tendency_label_2": find_max_cnt(tmp_travel_info.get("tendency_label_2", {}))
+        tmp_travel_info = rst_structure[dict_key]
+        tmp_scenic_dict = tmp_travel_info.get("scenic_dict", [])
+
+        for scenic_name in tmp_scenic_dict:
+            scenic_dict = tmp_scenic_dict.get(scenic_name)
+
+            travel_dict[scenic_name] = {
+                "provincial": tmp_travel_info.get("provincial", ""),
+                "main_scenic": dict_key,
+                "scenic": scenic_name,
+                "season": find_max_cnt(scenic_dict.get("cnt_season", {})),
+                "suit_months_range": find_max_cnt(scenic_dict.get("suit_months_range", {})),
+                "tendency_label_1": find_max_cnt(scenic_dict.get("tendency_label_1", {})),
+                "tendency_label_2": find_max_cnt(scenic_dict.get("tendency_label_2", {})),
+                "other_recommend": tmp_travel_info.get("other_recommend", "")
             }
     return travel_dict
 
 
 if __name__ == '__main__':
     # 替换为你的JSON文件路径
-    json_file = "C:/Users/13187/Desktop/travel_analysis_1.json"
+    json_file = "C:/Users/13187/Desktop/travelAnalysis.txt"
     travel_list = get_travel_info(json_file)
+    print(str(travel_list))

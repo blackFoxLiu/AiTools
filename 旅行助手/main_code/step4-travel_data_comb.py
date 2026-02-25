@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-旅行助手整合数据脚本
+旅行助手整合数据脚本（适配新数据模型）
 """
 
 import logging
@@ -32,7 +32,6 @@ NEO4J_CONFIG = {
     "password": password
 }
 
-
 PAGE_SIZE = 20  # 分页大小
 
 
@@ -53,26 +52,28 @@ class Neo4jConnection:
 # ==================== 批量查询（每页一次） ====================
 def fetch_scenic_page_data(db: Neo4jConnection, skip: int, limit: int):
     """
-    执行复杂查询，返回一页景点的完整数据（景点、所属城市、酒店、from_to及其工具）
-    返回一个Cursor，每条记录包含：
-        - s: 景点节点
-        - main_city: 所属城市名称（可能为None）
-        - hotels: 酒店节点列表
-        - from_to_list: 列表，每个元素为 {from_to: 节点, tools: 工具节点列表}
+    执行复杂查询，返回一页 Main_Scenic 的完整数据：
+        - s: Main_Scenic 节点
+        - provincial_name: 所属省份名称（可能为 None）
+        - scenic_list: Scenic 节点列表
+        - hotels: ScenicHotel 节点列表
+        - from_to_list: 列表，每个元素为 {from_to: Scenic_From_To 节点, tools: TravelTool 节点列表}
     """
     cql = """
-        MATCH (s:Scenic)
-        OPTIONAL MATCH (s)-[:belong_to]->(m:Main_City)
-        WITH s, m.name AS main_city
-        RETURN s, main_city,
-               [(s)-[:exists]->(h:ScenicHotel) | h] AS hotels,
-               [(s)-[:from_to]-(f:Scenic_From_To) | 
-                 {
+        MATCH (s:Main_Scenic)
+        OPTIONAL MATCH (s)-[:belong_to]->(p:Provincial)
+        OPTIONAL MATCH (s)-[:include]->(sc:Scenic)
+        WITH s, p.name AS provincial_name, collect(DISTINCT sc) AS scenic_list
+        OPTIONAL MATCH (s)-[:exists]->(h:ScenicHotel)
+        WITH s, provincial_name, scenic_list, collect(DISTINCT h) AS hotels
+        OPTIONAL MATCH (s)-[:from_to]-(f:Scenic_From_To)
+        WITH s, provincial_name, scenic_list, hotels, collect(DISTINCT f) AS from_to_nodes
+        RETURN s, provincial_name, scenic_list, hotels,
+               [f IN from_to_nodes | {
                    from_to: f,
                    tools: [(f)-[:tools]-(t:TravelTool) | t]
-                 }
-               ] AS from_to_list
-        ORDER BY s.name   // 按名称排序保证分页稳定
+               }] AS from_to_list
+        ORDER BY s.name
         SKIP $skip
         LIMIT $limit
     """
@@ -80,13 +81,13 @@ def fetch_scenic_page_data(db: Neo4jConnection, skip: int, limit: int):
 
 
 def get_scenic_count(db: Neo4jConnection) -> int:
-    """获取景点总数"""
-    result = db.run_query("MATCH (s:Scenic) RETURN count(s) AS total")
+    """获取 Main_Scenic 总数"""
+    result = db.run_query("MATCH (s:Main_Scenic) RETURN count(s) AS total")
     return result.evaluate()
 
 
 # ==================== 信息生成函数（基于批量查询的数据） ====================
-def format_scenic_info(scenic_node, main_city: Optional[str]) -> str:
+def format_scenic_info(scenic_node, provincial_name: Optional[str]) -> str:
     """生成景点基本信息描述"""
     props = dict(scenic_node)
     name = props.get("name")
@@ -94,13 +95,14 @@ def format_scenic_info(scenic_node, main_city: Optional[str]) -> str:
         return ""
 
     parts = []
-    if main_city:
-        parts.append(f"{name}位于{main_city}")
+    if provincial_name:
+        parts.append(f"{name}位于{provincial_name}")
 
     season = props.get("season")
     suit_months = props.get("suit_months_range")
     tendency1 = props.get("tendency_label_1")
     tendency2 = props.get("tendency_label_2")
+    other_recommend = props.get("other_recommend")
 
     if season:
         parts.append(f"适合季节为{season}")
@@ -110,6 +112,8 @@ def format_scenic_info(scenic_node, main_city: Optional[str]) -> str:
         parts.append(f"小红书上推荐景点倾向标签为{tendency1}")
     if tendency2:
         parts.append(f"小红书上推荐景点倾向次级标签为{tendency2}")
+    if other_recommend:
+        parts.append(f"其他推荐信息：{other_recommend}")
 
     return "，".join(parts) + "。" if parts else ""
 
@@ -195,7 +199,7 @@ def main():
     # 获取总景点数，计算页数
     total = get_scenic_count(db)
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
-    logging.info(f"总景点数: {total}, 分页数: {total_pages}")
+    logging.info(f"总 Main_Scenic 数: {total}, 分页数: {total_pages}")
 
     # 打开输出文件（覆盖模式）
     with open(os.path.join(rag_file_path, SCENIC_INFO_FILE), 'w', encoding='utf-8') as f_scenic, \
@@ -214,14 +218,15 @@ def main():
 
             for record in cursor:
                 scenic_node = record["s"]
-                main_city = record["main_city"]
+                provincial_name = record["provincial_name"]
                 hotels = record["hotels"]          # 列表
                 from_to_list = record["from_to_list"]  # 列表
 
+                test = dict(scenic_node)
                 scenic_name = dict(scenic_node).get("name", "")
 
                 # 写入景点基本信息
-                scenic_info = format_scenic_info(scenic_node, main_city)
+                scenic_info = format_scenic_info(scenic_node, provincial_name)
                 if scenic_info:
                     f_scenic.write(scenic_info + '\n')
 

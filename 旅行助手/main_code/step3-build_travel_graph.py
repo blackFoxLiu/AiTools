@@ -56,15 +56,17 @@ class MedicalGraph:
         self.travel_scenic_info = get_travel_info(travel_analysis_output_path)
 
         # 初始化数据容器（全部使用实例变量，避免类变量共享）
-        self.scenic_set = set()               # 所有景点名称（唯一）
-        self.main_city_set = set()             # 主要城市名称（唯一）
-        self.scenic_ft_set = set()              # 出发地-目的地对（格式 "A=B"）
-        self.scenic_ft_mode_set = set()         # 出行方式对（格式 "A=使用=M=到=B"）
+        self.main_city_set = set()                 # 所有省会名称（唯一）
+        self.main_scenic_set = set()               # 所有景区名称（唯一）
+        self.scenic_set = set()                    # 所有景点名称（唯一）
+        self.scenic_ft_set = set()                 # 出发地-目的地对（格式 "A=B"）
+        self.scenic_ft_mode_set = set()            # 出行方式对（格式 "A=使用=M=到=B"）
 
         # 关系列表（去重后使用集合，最后转换为列表用于批量创建）
         self.rels_scenic_from_to = set()        # (出发地, 出行对)
         self.rels_ft_mode = set()                # (出行对, 出行方式对)
-        self.rels_m_s = set()                     # (景点, 主要城市)
+        self.rels_m_s = set()                     # (景区, 景点)
+        self.rels_m_p = set()                     # (景区, 省会)
         self.rels_hotel_scenic = set()             # (景点, 酒店)
 
         # 酒店节点缓存，避免重复创建
@@ -82,14 +84,16 @@ class MedicalGraph:
             price_range = hotel_data.get("price_range", [])
             nearby_attractions = hotel_data.get("nearby_attractions", [])
 
+            judge_exist = False
             # 记录酒店与附近景点的关系
             for scenic in nearby_attractions:
-                if scenic.strip():
+                if scenic.strip() and scenic in self.main_scenic_set:
                     self.rels_hotel_scenic.add((scenic.strip(), hotel_name))
-                    self.scenic_set.add(scenic.strip())  # 确保景点存在
+                    self.main_scenic_set.add(scenic.strip())  # 确保景点存在
+                    judge_exist = True
 
             # 如果酒店节点尚未创建，则缓存（稍后批量创建）
-            if hotel_name not in self.hotel_nodes:
+            if hotel_name not in self.hotel_nodes and judge_exist:
                 props = {
                     "name": hotel_name,
                     "location": location,
@@ -108,15 +112,19 @@ class MedicalGraph:
         for trans in transportation_list:
             departure = trans.get("departure", "").strip()
             destination = trans.get("destination", "").strip()
+
+            if departure not in self.travel_scenic_info and \
+                    destination not in self.travel_scenic_info:
+                continue
             trans_modes = trans.get("transportation_mode", [])
 
             if not (departure and destination and trans_modes):
                 continue
 
             # 景点-主要城市关系
-            self.rels_m_s.add((departure, main_city))
-            self.rels_m_s.add((destination, main_city))
-            self.scenic_set.update([departure, destination])
+            self.rels_m_p.add((departure, main_city))
+            self.rels_m_p.add((destination, main_city))
+            self.main_scenic_set.update([departure, destination])
 
             # 出发地-目的地对
             scenic_ft = f"{departure}={destination}"
@@ -171,11 +179,13 @@ class MedicalGraph:
         # 清空已有数据（如果重复调用）
         self.scenic_set.clear()
         self.main_city_set.clear()
+        self.main_scenic_set.clear()
         self.scenic_ft_set.clear()
         self.scenic_ft_mode_set.clear()
         self.rels_scenic_from_to.clear()
         self.rels_ft_mode.clear()
         self.rels_m_s.clear()
+        self.rels_m_p.clear()
         self.rels_hotel_scenic.clear()
         self.hotel_nodes.clear()
         self._travel_tool_nodes_cache = {}  # (label, name) -> Node
@@ -188,11 +198,16 @@ class MedicalGraph:
             raise
 
         for scenic_name in self.travel_scenic_info:
+            self.main_scenic_set.add(scenic_name)
             scenic_info_dict = self.travel_scenic_info.get(scenic_name, "")
-            main_city = scenic_info_dict.get("provincial", "")
-            if main_city != "":
-                self.scenic_set.add(scenic_name)
-                self.rels_m_s.add((scenic_name, main_city))
+            provincial = scenic_info_dict.get("provincial", "")
+            if len(provincial) != 0:
+                self.rels_m_p.add((scenic_name, provincial))
+                self.main_city_set.add(provincial)
+            main_scenic = scenic_info_dict.get("main_scenic", "")
+
+            self.rels_m_s.add((scenic_name, main_scenic))
+            self.scenic_set.add(scenic_name)
 
         for record in data:
             self._parse_hotels(record)
@@ -264,19 +279,22 @@ class MedicalGraph:
         self.read_nodes()
 
         # 创建主要城市节点
-        self._batch_create_nodes("Main_City", self.main_city_set)
+        self._batch_create_nodes("Provincial", self.main_city_set)
+
+        self._batch_create_nodes("Scenic", self.scenic_set)
 
         # 创建景点节点，附加推荐信息
-        def scenic_props(name):
+        def main_scenic_props(name):
             info = self.travel_scenic_info.get(name, {})
             return {
                 "season": info.get("season", ""),
                 "suit_months_range": info.get("suit_months_range", ""),
-                "recommand": info.get("recommand", ""),
+                "other_recommend": info.get("other_recommend", ""),
                 "tendency_label_1": info.get("tendency_label_1", ""),
                 "tendency_label_2": info.get("tendency_label_2", "")
             }
-        self._batch_create_nodes("Scenic", self.scenic_set, properties_func=scenic_props)
+        # 创建主要景点
+        self._batch_create_nodes("Main_Scenic", self.main_scenic_set, properties_func=main_scenic_props)
 
         # 创建出行对节点 (Scenic_From_To)
         self._batch_create_nodes("Scenic_From_To", self.scenic_ft_set)
@@ -304,10 +322,11 @@ class MedicalGraph:
 
     def create_graphrels(self):
         """创建所有关系"""
-        self._batch_create_relationships(self.rels_scenic_from_to, "Scenic", "Scenic_From_To", "from_to", "关联")
+        self._batch_create_relationships(self.rels_scenic_from_to, "Main_Scenic", "Scenic_From_To", "from_to", "关联")
         self._batch_create_relationships(self.rels_ft_mode, "Scenic_From_To", "TravelTool", "tools", "可选工具")
-        self._batch_create_relationships(self.rels_m_s, "Scenic", "Main_City", "belong_to", "属于")
-        self._batch_create_relationships(self.rels_hotel_scenic, "Scenic", "ScenicHotel", "exists", "存在")
+        self._batch_create_relationships(self.rels_m_s, "Scenic", "Main_Scenic", "include", "包含")
+        self._batch_create_relationships(self.rels_m_p, "Main_Scenic", "Provincial", "belong_to", "属于")
+        self._batch_create_relationships(self.rels_hotel_scenic, "Main_Scenic", "ScenicHotel", "exists", "存在")
 
 
 if __name__ == '__main__':

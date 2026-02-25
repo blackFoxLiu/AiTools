@@ -1,160 +1,175 @@
 import json
-from typing import Any, Dict, List, Set, Union
+import logging
+from typing import Any, Dict, List, Set
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# 允许的季节和月份
+ALLOWED_SEASONS: Set[str] = {"春季", "夏季", "秋季", "冬季"}
+ALLOWED_MONTHS: Set[str] = {str(i) for i in range(1, 13)}
 
 
-def check_travel_analysis(json_input: Union[str, Dict[str, Any]]) -> bool:
+def check_travel_analysis(data: Dict[str, Any]) -> bool:
     """
-    检查 JSON 数据是否符合要求的格式。
-
-    参数:
-        json_input: JSON 字符串或已经解析的字典。
-
-    返回:
-        bool: 符合要求返回 True，否则返回 False。
+    验证给定的字典是否符合 JSON 格式要求。
+    返回 True 表示通过，False 表示失败，同时打印所有错误日志。
     """
-    # 解析 JSON（如果是字符串）
-    if isinstance(json_input, str):
-        try:
-            data = json.loads(json_input)
-        except json.JSONDecodeError as e:
-            print(f"JSON 解析失败: {e}")
+    errors: List[str] = []          # 收集严重错误
+    warnings: List[str] = []        # 收集警告（不影响最终结果）
+
+    def add_error(msg: str) -> None:
+        errors.append(msg)
+
+    def add_warning(msg: str) -> None:
+        warnings.append(msg)
+
+    # 辅助函数：检查必填字符串字段
+    def check_required_str(obj: Any, field: str, path: str) -> bool:
+        """检查字段是否存在、类型为 str 且非空。返回 True 表示通过，否则向 errors 添加错误并返回 False。"""
+        if field not in obj:
+            add_error(f"{path} 缺少字段 '{field}'")
             return False
-    else:
-        data = json_input
+        val = obj[field]
+        if not isinstance(val, str):
+            add_error(f"{path}['{field}'] 必须是字符串，实际是 {type(val).__name__}")
+            return False
+        if not val.strip():
+            add_error(f"{path}['{field}'] 不能为空")
+            return False
+        return True
 
-    errors: List[str] = []
+    # 辅助函数：检查可选列表字段（如果存在，则必须是列表）
+    def check_optional_list(obj: Any, field: str, path: str) -> bool:
+        """如果字段存在，检查其类型是否为 list。返回 True 表示通过或字段不存在，否则添加错误并返回 False。"""
+        if field in obj:
+            if not isinstance(obj[field], list):
+                add_error(f"{path}['{field}'] 必须是列表，实际是 {type(obj[field]).__name__}")
+                return False
+        return True
 
-    # ---------- 顶级字段检查 ----------
+    # 辅助函数：检查列表中的每个元素是否为指定类型（可选）
+    def check_list_elements(lst: List, expected_type: type, item_path_prefix: str) -> bool:
+        """检查列表 lst 中每个元素是否为 expected_type。返回 True 表示所有元素符合，否则添加错误并返回 False。"""
+        valid = True
+        for idx, elem in enumerate(lst):
+            if not isinstance(elem, expected_type):
+                add_error(f"{item_path_prefix}[{idx}] 必须是 {expected_type.__name__}，实际是 {type(elem).__name__}")
+                valid = False
+        return valid
+
+    # 辅助函数：检查集合包含关系
+    def check_allowed_values(value: Any, allowed_set: Set[str], path: str) -> bool:
+        if value not in allowed_set:
+            add_error(f"{path} 值 '{value}' 不在允许集合 {allowed_set} 中")
+            return False
+        return True
+
+    # ---------- 顶层字段检查 ----------
     # provincial
-    if "provincial" not in data:
-        errors.append("缺少顶级字段: provincial")
-    else:
-        if not isinstance(data["provincial"], str):
-            errors.append("provincial 类型错误，应为字符串")
-        elif data["provincial"].strip() == "":
-            errors.append("provincial 不能为空")
-
+    check_required_str(data, "provincial", "顶层")
     # main_scenic_list
     if "main_scenic_list" not in data:
-        errors.append("缺少顶级字段: main_scenic_list")
-    else:
-        main_list = data["main_scenic_list"]
-        if not isinstance(main_list, list):
-            errors.append("main_scenic_list 类型错误，应为列表")
-        elif len(main_list) == 0:
-            errors.append("main_scenic_list 至少包含一个元素")
-        else:
-            for i, scenic_item in enumerate(main_list):
-                if not isinstance(scenic_item, dict):
-                    errors.append(f"main_scenic_list[{i}] 类型错误，应为字典")
+        add_error("顶层缺少字段 'main_scenic_list'")
+    elif not isinstance(data["main_scenic_list"], list):
+        add_error("'main_scenic_list' 必须是列表")
+    elif len(data["main_scenic_list"]) == 0:
+        add_error("'main_scenic_list' 至少包含一个元素")
+
+    # 如果顶层已有严重错误，直接返回 False（避免后续因缺少字段而崩溃）
+    if errors:
+        for err in errors:
+            logger.error(f"错误:", err)
+        for warn in warnings:
+            logger.error(f"警告:", warn)
+        return False
+
+    # ---------- 遍历 main_scenic_list ----------
+    main_list = data["main_scenic_list"]
+    for idx, scenic_dict in enumerate(main_list):
+        base_path = f"main_scenic_list[{idx}]"
+
+        if not isinstance(scenic_dict, dict):
+            add_error(f"{base_path} 必须是字典")
+            continue   # 跳过后续对该元素的检查
+
+        # main_scenic
+        check_required_str(scenic_dict, "main_scenic", base_path)
+        # tendency_label_1
+        check_required_str(scenic_dict, "tendency_label_1", base_path)
+        # tendency_label_2
+        check_required_str(scenic_dict, "tendency_label_2", base_path)
+
+        # other_recommend (可选列表)
+        if "other_recommend" in scenic_dict:
+            if check_optional_list(scenic_dict, "other_recommend", base_path):
+                other_list = scenic_dict["other_recommend"]
+                check_list_elements(other_list, str, f"{base_path}['other_recommend']")
+
+        # journeys (可选列表)
+        if "journeys" in scenic_dict:
+            if not check_optional_list(scenic_dict, "journeys", base_path):
+                continue
+            journeys = scenic_dict["journeys"]
+            # 即使 journeys 为空列表，也无需检查内部元素
+            for jdx, journey in enumerate(journeys):
+                journey_path = f"{base_path}['journeys'][{jdx}]"
+                if not isinstance(journey, dict):
+                    add_error(f"{journey_path} 必须是字典")
                     continue
 
-                # main_scenic
-                if "main_scenic" not in scenic_item:
-                    errors.append(f"main_scenic_list[{i}] 缺少字段: main_scenic")
+                # scenic
+                check_required_str(journey, "scenic", journey_path)
+
+                # season
+                if "season" not in journey:
+                    add_error(f"{journey_path} 缺少字段 'season'")
+                elif not isinstance(journey["season"], list):
+                    add_error(f"{journey_path}['season'] 必须是列表")
                 else:
-                    ms = scenic_item["main_scenic"]
-                    if not isinstance(ms, str):
-                        errors.append(f"main_scenic_list[{i}].main_scenic 类型错误，应为字符串")
-                    elif ms.strip() == "":
-                        errors.append(f"main_scenic_list[{i}].main_scenic 不能为空")
+                    season_list = journey["season"]
+                    # 检查每个元素类型
+                    for s_idx, s in enumerate(season_list):
+                        s_path = f"{journey_path}['season'][{s_idx}]"
+                        if not isinstance(s, str):
+                            add_error(f"{s_path} 必须是字符串")
+                        else:
+                            check_allowed_values(s, ALLOWED_SEASONS, s_path)
 
-                # journeys (可选)
-                if "journeys" in scenic_item:
-                    journeys = scenic_item["journeys"]
-                    if not isinstance(journeys, list):
-                        errors.append(f"main_scenic_list[{i}].journeys 类型错误，应为列表")
-                    else:
-                        for j, journey_item in enumerate(journeys):
-                            if not isinstance(journey_item, dict):
-                                errors.append(f"main_scenic_list[{i}].journeys[{j}] 类型错误，应为字典")
-                                continue
+                # suit_months_range
+                if "suit_months_range" not in journey:
+                    add_error(f"{journey_path} 缺少字段 'suit_months_range'")
+                elif not isinstance(journey["suit_months_range"], list):
+                    add_error(f"{journey_path}['suit_months_range'] 必须是列表")
+                else:
+                    months_list = journey["suit_months_range"]
+                    for m_idx, m in enumerate(months_list):
+                        m_path = f"{journey_path}['suit_months_range'][{m_idx}]"
+                        if not isinstance(m, str):
+                            add_error(f"{m_path} 必须是字符串")
+                        else:
+                            check_allowed_values(m, ALLOWED_MONTHS, m_path)
 
-                            # scenic
-                            if "scenic" not in journey_item:
-                                errors.append(f"main_scenic_list[{i}].journeys[{j}] 缺少字段: scenic")
-                            else:
-                                sc = journey_item["scenic"]
-                                if not isinstance(sc, str):
-                                    errors.append(f"main_scenic_list[{i}].journeys[{j}].scenic 类型错误，应为字符串")
-                                elif sc.strip() == "":
-                                    errors.append(f"main_scenic_list[{i}].journeys[{j}].scenic 不能为空")
+                # 可选字段的类型检查（仅警告）
+                optional_fields = ["scenic_intro", "time_required", "recommand"]
+                for field in optional_fields:
+                    if field in journey and not isinstance(journey[field], str):
+                        add_warning(f"{journey_path}['{field}'] 应该是字符串，实际是 {type(journey[field]).__name__}")
 
-                            # season
-                            if "season" not in journey_item:
-                                errors.append(f"main_scenic_list[{i}].journeys[{j}] 缺少字段: season")
-                            else:
-                                season_val = journey_item["season"]
-                                if not isinstance(season_val, list):
-                                    errors.append(f"main_scenic_list[{i}].journeys[{j}].season 类型错误，应为列表")
-                                else:
-                                    valid_seasons: Set[str] = {"春季", "夏季", "秋季", "冬季"}
-                                    for k, s in enumerate(season_val):
-                                        if not isinstance(s, str):
-                                            errors.append(f"main_scenic_list[{i}].journeys[{j}].season[{k}] 类型错误，应为字符串")
-                                        elif s not in valid_seasons:
-                                            errors.append(
-                                                f"main_scenic_list[{i}].journeys[{j}].season[{k}] 值 '{s}' 无效，"
-                                                f"必须为 {valid_seasons}"
-                                            )
-
-                            # suit_months_range
-                            if "suit_months_range" not in journey_item:
-                                errors.append(f"main_scenic_list[{i}].journeys[{j}] 缺少字段: suit_months_range")
-                            else:
-                                months_val = journey_item["suit_months_range"]
-                                if not isinstance(months_val, list):
-                                    errors.append(f"main_scenic_list[{i}].journeys[{j}].suit_months_range 类型错误，应为列表")
-                                else:
-                                    valid_months: Set[str] = {str(m) for m in range(1, 13)}
-                                    for k, m in enumerate(months_val):
-                                        if not isinstance(m, str):
-                                            errors.append(
-                                                f"main_scenic_list[{i}].journeys[{j}].suit_months_range[{k}] 类型错误，应为字符串"
-                                            )
-                                        elif m not in valid_months:
-                                            errors.append(
-                                                f"main_scenic_list[{i}].journeys[{j}].suit_months_range[{k}] 值 '{m}' 无效，"
-                                                f"必须为 1-12 的字符串"
-                                            )
-
-                            # tendency_label_1
-                            if "tendency_label_1" not in journey_item:
-                                errors.append(f"main_scenic_list[{i}].journeys[{j}] 缺少字段: tendency_label_1")
-                            else:
-                                t1 = journey_item["tendency_label_1"]
-                                if not isinstance(t1, str):
-                                    errors.append(f"main_scenic_list[{i}].journeys[{j}].tendency_label_1 类型错误，应为字符串")
-                                elif t1.strip() == "":
-                                    errors.append(f"main_scenic_list[{i}].journeys[{j}].tendency_label_1 不能为空")
-
-                            # tendency_label_2
-                            if "tendency_label_2" not in journey_item:
-                                errors.append(f"main_scenic_list[{i}].journeys[{j}] 缺少字段: tendency_label_2")
-                            else:
-                                t2 = journey_item["tendency_label_2"]
-                                if not isinstance(t2, str):
-                                    errors.append(f"main_scenic_list[{i}].journeys[{j}].tendency_label_2 类型错误，应为字符串")
-                                elif t2.strip() == "":
-                                    errors.append(f"main_scenic_list[{i}].journeys[{j}].tendency_label_2 不能为空")
-
-                # other_recommend 字段可选，不强制检查
-
-    # copewriting_type
-    if "copewriting_type" not in data:
-        errors.append("缺少顶级字段: copewriting_type")
+    # ---------- 输出结果 ----------
+    if errors:
+        for err in errors:
+            logger.error(f"错误:", err)
+        for warn in warnings:
+            logger.error(f"警告:", warn)
+        logger.error("JSON 格式验证失败！")
+        return False
     else:
-        ct = data["copewriting_type"]
-        if not isinstance(ct, str):
-            errors.append("copewriting_type 类型错误，应为字符串")
-        elif ct not in ["经验分享", "主观感受"]:
-            errors.append("copewriting_type 值必须为 '经验分享' 或 '主观感受'")
-
-    # 输出所有错误
-    for err in errors:
-        print(err)
-
-    return len(errors) == 0
+        if warnings:
+            for warn in warnings:
+                logger.error(f"警告:", warn)
+        logger.info("JSON 格式验证通过！")
+        return True
 
 
 # 示例用法（可取消注释进行测试）
@@ -173,15 +188,14 @@ if __name__ == "__main__":
                         "suit_months_range": [],
                         "scenic_intro": "美丽的湖泊",
                         "time_required": "2小时",
-                        "recommand": "必去",
-                        "tendency_label_1": "自然风光",
-                        "tendency_label_2": "摄影天堂"
+                        "recommand": "必去"
                     }
                 ],
-                "other_recommend": ["黄龙", "若尔盖"]
+                "other_recommend": ["黄龙", "若尔盖"],
+                "tendency_label_1": "自然风光",
+                "tendency_label_2": "摄影天堂"
             }
-        ],
-        "copewriting_type": "主观感受"
+        ]
     }
     """
-    print("检查结果:", check_travel_analysis(valid_json))  # 应为 True
+    print("检查结果:", check_travel_analysis(json.loads(valid_json)))  # 应为 True

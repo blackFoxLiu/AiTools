@@ -169,9 +169,9 @@ def main():
         if result is not None:
             results.append(result)
             success_count += 1
-            logger.debug(f"成功处理一条记录，累计成功数: {success_count}")
+            logger.info(f"成功处理一条记录，累计成功数: {success_count}")
         else:
-            logger.debug(f"记录处理失败，已跳过")
+            logger.info(f"记录处理失败，已跳过 {str(result)}")
 
     # 5. 一次性写入完整的 JSON 数组文件
     with open(output_path, 'w', encoding='utf-8') as f:
