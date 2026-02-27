@@ -22,6 +22,7 @@ rag_file_path = config['file_path']['rag_file_path']
 TOOLS_INFO_FILE = config['model_output']['TOOLS_INFO_FILE']
 FOOD_INFO_FILE = config['model_output']['FOOD_INFO_FILE']
 HOTELS_INFO_FILE = config['model_output']['HOTELS_INFO_FILE']
+TRAVEL_PATH_FILE = config['model_output']['TRAVEL_PATH_FILE']
 neo4j_uri = config['neo4j']['neo4j_uri']
 account = config['neo4j']['account']
 password = config['neo4j']['password']
@@ -357,10 +358,9 @@ def fetch_travel_path(main_scenic_name: str,
 
 
 # 查询所有可达结点
-def format_path_info(main_scenic_list:list[str]) -> List[str]:
+def format_path_info(main_scenic_list:list[str], f_paths) -> List[str]:
     """
-    遍历当前景点所有可达路径
-    TODO 暂不考虑大数问题
+        遍历当前景点所有可达路径
     """
     """生成景点基本信息描述"""
     vis_main_scenic_set = set()
@@ -368,7 +368,8 @@ def format_path_info(main_scenic_list:list[str]) -> List[str]:
         save_path_list = list()
         fetch_travel_path(main_scenic_name, vis_main_scenic_set, "", save_path_list)
         if len(save_path_list) != 0:
-            print()
+            for save_path in save_path_list:
+                f_paths.write(save_path + '\n')
 
 
 def format_tools_info(from_to_list: List[Dict], processed_from_to: Set[str]) -> List[str]:
@@ -464,6 +465,7 @@ def main():
     with open(os.path.join(rag_file_path, SCENIC_INFO_FILE), 'w', encoding='utf-8') as f_scenic, \
          open(os.path.join(rag_file_path, FOOD_INFO_FILE), 'w', encoding='utf-8') as f_foods, \
          open(os.path.join(rag_file_path, TOOLS_INFO_FILE), 'w', encoding='utf-8') as f_tools, \
+         open(os.path.join(rag_file_path, TRAVEL_PATH_FILE), 'w', encoding='utf-8') as f_paths, \
          open(os.path.join(rag_file_path, HOTELS_INFO_FILE), 'w', encoding='utf-8') as f_hotels:
 
         # 用于全局去重的from_to名称集合
@@ -482,8 +484,7 @@ def main():
             main_scenic_names = [node.get("name") for node, _ in main_scenic_page if node.get("name")]
 
             # 7. 当前结点旅行路线标签
-            # TODO cypher 连表优化
-            travel_path = format_path_info(main_scenic_names)
+            format_path_info(main_scenic_names, f_paths)
 
             # 3. 批量查询 ScenicHotel 节点
             hotel_dict = fetch_hotel_for_main_scenic(db, main_scenic_names)
