@@ -57,10 +57,10 @@ DEFAULT_CONFIG = {
     'file_path.rag_eva_resp_prompt': './prompts/evaluation.txt',
     'file_path.rag_analysis_prompt': './prompts/analysis.txt',
     'file_path.rag_chat_prompt': './prompts/chat.txt',
-    'text_splitter.chunk_size': '70',
+    'text_splitter.chunk_size': '400',
     'text_splitter.chunk_overlap': '20',
     'text_splitter.separators': '\n',  # 多个分隔符用逗号分隔
-    'retriever.k': '5',
+    'retriever.k': '7',
 }
 
 
@@ -272,8 +272,6 @@ def main():
             print("=" * 50)
             result = app.answer_question(query)
 
-            print(f"\n💬 最终回答: {result['result']}")
-
             # 显示源文档
             print("\n📋 使用的源文档:")
             for i, src_doc in enumerate(result["source_documents"]):
@@ -284,6 +282,8 @@ def main():
             print('\n' + '📊 回答质量评估:')
             eval_result = app.evaluate_response(query, result['result'])
             print(eval_result)
+
+            print(f"\n💬 最终回答: {result['result']}")
 
         except KeyboardInterrupt:
             print("\n\n程序被用户中断，退出。")

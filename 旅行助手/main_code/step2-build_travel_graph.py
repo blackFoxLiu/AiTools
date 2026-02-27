@@ -14,6 +14,8 @@ from py2neo import Graph, Node, Subgraph
 try:
     # 假设这些自定义函数存在
     from utils.statistics_travel_info import get_travel_info
+    from utils.common_tools import read_json_file
+    from utils.statistics_food_info import get_food_info
 except ImportError:
     print("警告：未找到 statistics_travel_info，使用默认验证（始终通过）")
 
@@ -30,6 +32,7 @@ neo4j_uri = config['neo4j']['neo4j_uri']
 account = config['neo4j']['account']
 password = config['neo4j']['password']
 travel_analysis_output_path = config['model_output']['travel_analysis_output_path']
+food_output_path = config['model_output']['food_output_path']
 
 
 class MedicalGraph:
@@ -55,18 +58,27 @@ class MedicalGraph:
         # 从统计数据获取景点推荐信息
         self.travel_scenic_info = get_travel_info(travel_analysis_output_path)
 
+        # 获取美食结构信息
+        # TODO 数据合并时，对【位置】和【价格】通过模型进行整理
+        self.food_list = get_food_info(food_output_path)
+
         # 初始化数据容器（全部使用实例变量，避免类变量共享）
         self.main_city_set = set()                 # 所有省会名称（唯一）
         self.main_scenic_set = set()               # 所有景区名称（唯一）
         self.scenic_set = set()                    # 所有景点名称（唯一）
         self.scenic_ft_set = set()                 # 出发地-目的地对（格式 "A=B"）
         self.scenic_ft_mode_set = set()            # 出行方式对（格式 "A=使用=M=到=B"）
+        self.food_set = set()                      # 美食结点（唯一）
 
         # 关系列表（去重后使用集合，最后转换为列表用于批量创建）
-        self.rels_scenic_from_to = set()        # (出发地, 出行对)
+        self.rels_scenic_from = set()        # (出发地, 出发终点连接)
+        self.rels_scenic_to = set()          # (出发地, 出发终点连接)
+        self.rels_arrive = set()                # (可达对出发地, 可达对目的地)
+        self.rels_reverse_arrive = set()        # (可达对目的地, 可达对出发地)
         self.rels_ft_mode = set()                # (出行对, 出行方式对)
         self.rels_m_s = set()                     # (景区, 景点)
         self.rels_m_p = set()                     # (景区, 省会)
+        self.rels_f_m = set()                     # (美食, 景区)
         self.rels_hotel_scenic = set()             # (景点, 酒店)
 
         # 酒店节点缓存，避免重复创建
@@ -127,12 +139,19 @@ class MedicalGraph:
             self.main_scenic_set.update([departure, destination])
 
             # 出发地-目的地对
-            scenic_ft = f"{departure}={destination}"
+            scenic_ft = f"{departure}到达{destination}"
             self.scenic_ft_set.add(scenic_ft)
 
             # 景点与出行对的关系
-            self.rels_scenic_from_to.add((departure, scenic_ft))
-            self.rels_scenic_from_to.add((destination, scenic_ft))
+            self.rels_scenic_from.add((departure, scenic_ft))
+            self.rels_scenic_to.add((scenic_ft, destination))
+
+            # 设置可达关系
+            if departure != destination:
+                if (departure, destination) not in self.rels_reverse_arrive:
+                    self.rels_arrive.add((departure, destination))
+                if (destination, departure) not in self.rels_arrive:
+                    self.rels_reverse_arrive.add((destination, departure))
 
             # 构建出行方式节点名称
             trans_modes_str = ','.join(trans_modes)
@@ -182,12 +201,16 @@ class MedicalGraph:
         self.main_scenic_set.clear()
         self.scenic_ft_set.clear()
         self.scenic_ft_mode_set.clear()
-        self.rels_scenic_from_to.clear()
+        self.rels_scenic_from.clear()
+        self.rels_scenic_to.clear()
         self.rels_ft_mode.clear()
         self.rels_m_s.clear()
         self.rels_m_p.clear()
         self.rels_hotel_scenic.clear()
         self.hotel_nodes.clear()
+        self.food_set.clear()
+        self.rels_f_m.clear()
+
         self._travel_tool_nodes_cache = {}  # (label, name) -> Node
 
         try:
@@ -208,6 +231,13 @@ class MedicalGraph:
 
             self.rels_m_s.add((scenic_name, main_scenic))
             self.scenic_set.add(scenic_name)
+
+        for food_name in self.food_list:
+            food_dict = self.food_list.get(food_name)
+            main_scenic = food_dict.get("main_scenic", "")
+            if main_scenic.strip() and main_scenic in self.main_scenic_set:
+                self.food_set.add(food_name)
+                self.rels_f_m.add((food_name, main_scenic))
 
         for record in data:
             self._parse_hotels(record)
@@ -280,8 +310,20 @@ class MedicalGraph:
 
         # 创建主要城市节点
         self._batch_create_nodes("Provincial", self.main_city_set)
-
+        # 创建景点结点
         self._batch_create_nodes("Scenic", self.scenic_set)
+
+        def main_food_props(name):
+            info = self.food_list.get(name, {})
+            return {
+                "main_scenic": info.get("main_scenic", ""),
+                "food_price": info.get("food_price", ""),
+                "location": info.get("location", ""),
+                "note": info.get("note", "")
+            }
+
+        # 创建美食结点
+        self._batch_create_nodes("Food", self.food_set, properties_func=main_food_props)
 
         # 创建景点节点，附加推荐信息
         def main_scenic_props(name):
@@ -322,11 +364,15 @@ class MedicalGraph:
 
     def create_graphrels(self):
         """创建所有关系"""
-        self._batch_create_relationships(self.rels_scenic_from_to, "Main_Scenic", "Scenic_From_To", "from_to", "关联")
+        self._batch_create_relationships(self.rels_scenic_from, "Main_Scenic", "Scenic_From_To", "from", "出发到")
+        self._batch_create_relationships(self.rels_scenic_to, "Scenic_From_To", "Main_Scenic", "to", "出发到")
         self._batch_create_relationships(self.rels_ft_mode, "Scenic_From_To", "TravelTool", "tools", "可选工具")
         self._batch_create_relationships(self.rels_m_s, "Scenic", "Main_Scenic", "include", "包含")
         self._batch_create_relationships(self.rels_m_p, "Main_Scenic", "Provincial", "belong_to", "属于")
         self._batch_create_relationships(self.rels_hotel_scenic, "Main_Scenic", "ScenicHotel", "exists", "存在")
+        self._batch_create_relationships(self.rels_f_m, "Food", "Main_Scenic", "have", "有")
+        self._batch_create_relationships(self.rels_arrive, "Main_Scenic", "Main_Scenic", "arrive", "可达")
+        self._batch_create_relationships(self.rels_reverse_arrive, "Main_Scenic", "Main_Scenic", "arrive", "可达")
 
 
 if __name__ == '__main__':
