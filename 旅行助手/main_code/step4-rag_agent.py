@@ -266,10 +266,6 @@ def main():
                 print('*' * 10 + f'片段 {i} 结束' + '*' * 10)
             print('-' * 10 + '检索结果' + '-' * 10)
 
-            # 完整RAG回答
-            print("\n" + "=" * 50)
-            print("完整RAG回答:")
-            print("=" * 50)
             result = app.answer_question(query)
 
             # 显示源文档
@@ -282,6 +278,11 @@ def main():
             print('\n' + '📊 回答质量评估:')
             eval_result = app.evaluate_response(query, result['result'])
             print(eval_result)
+
+            # 完整RAG回答
+            print("\n" + "=" * 50)
+            print("完整RAG回答:")
+            print("=" * 50)
 
             print(f"\n💬 最终回答: {result['result']}")
 
