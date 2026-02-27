@@ -23,7 +23,7 @@ from langchain_community.vectorstores import Chroma
 try:
     from utils.common_tools import get_prompt_str
 except ImportError:
-    print("警告：导入 get_prompt_str 失败，请确保 utils.common_tools 可用")
+    logger.debug("警告：导入 get_prompt_str 失败，请确保 utils.common_tools 可用")
     # 提供一个简单的占位实现，避免运行时崩溃
 
     def get_prompt_str(file_path: str) -> str:
@@ -60,7 +60,7 @@ DEFAULT_CONFIG = {
     'text_splitter.chunk_size': '400',
     'text_splitter.chunk_overlap': '20',
     'text_splitter.separators': '\n',  # 多个分隔符用逗号分隔
-    'retriever.k': '7',
+    'retriever.k': '16',
 }
 
 
@@ -235,63 +235,63 @@ def main():
     # 创建RAG应用实例
     app = RAGApplication(llm, embedding_model, chroma_db_path, rag_file_path)
 
-    print("\n=== 旅行助手RAG系统已启动（输入 'exit' 或 'quit' 退出）===\n")
+    logger.debug("\n=== 旅行助手RAG系统已启动（输入 'exit' 或 'quit' 退出）===\n")
     while True:
         try:
             query = input("请输入您的问题: ").strip()
             if query.lower() in ('exit', 'quit'):
-                print("感谢使用，再见！")
+                logger.debug("感谢使用，再见！")
                 break
             if not query:
                 continue
 
-            print('\n' + '=' * 60)
-            print(f"🎯 用户原始问题: \"{query}\"")
-            print('=' * 60)
+            logger.debug('\n' + '=' * 60)
+            logger.debug(f"🎯 用户原始问题: \"{query}\"")
+            logger.debug('=' * 60)
 
             # 检索相似文档
-            print('\n' + '-' * 10 + '检索结果' + '-' * 10)
+            logger.debug('\n' + '-' * 10 + '检索结果' + '-' * 10)
             similar_docs = app.retrieve_similar_docs(query)
-            print(f"📚 检索到 {len(similar_docs)} 个相关文档片段")
+            logger.debug(f"📚 检索到 {len(similar_docs)} 个相关文档片段")
 
             # 意图分析
-            print('\n' + '🔍 问题意图分析:')
+            logger.debug('\n' + '🔍 问题意图分析:')
             intent = app.analyze_question_intent(query, similar_docs)
-            print(intent)
+            logger.debug(intent)
 
             # 显示检索到的文档片段
             for i, doc in enumerate(similar_docs):
-                print('\n' + '*' * 10 + f'片段 {i} 开始' + '*' * 10)
-                print(doc.page_content)
-                print('*' * 10 + f'片段 {i} 结束' + '*' * 10)
-            print('-' * 10 + '检索结果' + '-' * 10)
+                logger.debug('\n' + '*' * 10 + f'片段 {i} 开始' + '*' * 10)
+                logger.debug(doc.page_content)
+                logger.debug('*' * 10 + f'片段 {i} 结束' + '*' * 10)
+            logger.debug('-' * 10 + '检索结果' + '-' * 10)
 
             result = app.answer_question(query)
 
             # 显示源文档
-            print("\n📋 使用的源文档:")
+            logger.debug("\n📋 使用的源文档:")
             for i, src_doc in enumerate(result["source_documents"]):
                 preview = src_doc.page_content[:200] + ('...' if len(src_doc.page_content) > 200 else '')
-                print(f"文档 {i + 1}: {preview}")
+                logger.debug(f"文档 {i + 1}: {preview}")
 
             # 回答质量评估
-            print('\n' + '📊 回答质量评估:')
+            logger.debug('\n' + '📊 回答质量评估:')
             eval_result = app.evaluate_response(query, result['result'])
-            print(eval_result)
+            logger.debug(eval_result)
 
             # 完整RAG回答
-            print("\n" + "=" * 50)
-            print("完整RAG回答:")
-            print("=" * 50)
+            logger.debug("\n" + "=" * 50)
+            logger.debug("完整RAG回答:")
+            logger.debug("=" * 50)
 
             print(f"\n💬 最终回答: {result['result']}")
 
         except KeyboardInterrupt:
-            print("\n\n程序被用户中断，退出。")
+            logger.debug("\n\n程序被用户中断，退出。")
             break
         except Exception as e:
             logger.error(f"处理问题时发生错误: {e}", exc_info=True)
-            print(f"处理失败: {e}")
+            logger.debug(f"处理失败: {e}")
 
 
 if __name__ == "__main__":
