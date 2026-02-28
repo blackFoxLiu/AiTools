@@ -173,11 +173,6 @@ def main():
     # 初始化客户端
     client = get_ollama_client(args.base_url, args.api_key)
 
-    # 确定输出文件路径
-    if not args.output:
-        timestamp = get_timestamp()
-        args.output = f"C:/Users/13187/Desktop/itinerary_{timestamp}.json"
-
     results = []
     success_count = 0
     error_count = 0
