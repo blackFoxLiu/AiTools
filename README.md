@@ -10,8 +10,8 @@
 
 # 附注
 ## 爬虫内容请参考
-> ** NanmiCoder/MediaCrawler **
-> * https://github.com/NanmiCoder/MediaCrawler *
+> 作者：**NanmiCoder/MediaCrawler** \
+> 链接：**https://github.com/NanmiCoder/MediaCrawler**
 
 ## 模型使用
 - 本地部署模型为 ollama-deepseek-r1:14b，显存需要月12GB，可根据实际需要修改模型设计。不同模型可能对模型处理结果产生一定影响，但应该不会响应项目运行，已通过 Python 脚本对大模型响应的数据进行校验和规整。
@@ -27,12 +27,22 @@
 
 # 文件及关键字备注
 ## 目录
-- ** prompt **   : 包含使用的提示词文件
-- ** utils **    : 包含主要的检测文件，包括大模型生成的 JSON 数据的格式校验、数据统计工具，以及通用工具。
-- ** code.file **: 包含代码流程步骤，因为Python依赖缘故未对整体进行封装（20260228）。
+- **prompt**   : 包含使用的提示词文件
+- **utils**    : 包含主要的检测文件，包括大模型生成的 JSON 数据的格式校验、数据统计工具，以及通用工具。
+- **code.file**: 包含代码流程步骤，因为Python依赖缘故未对整体进行封装（20260228）。
 
 ## 关键字及其他
-- ** config.ini ** 文件中主要包含对相关内容的配置信息，不修改配置且代码按顺序执行的情况下，代码可直接按执行步骤运行。
-- ** config.ini ** 需要修改【embedding_model/model_name】 需要下载向量编码模型。
-- ** code.file ** 按照 ** step-.*.py ** 的顺序进行执行。
+- **config.ini** 文件中主要包含对相关内容的配置信息，不修改配置且代码按顺序执行的情况下，代码可直接按执行步骤运行。
+- **config.ini** 需要修改【embedding_model/model_name】 需要下载向量编码模型。
+- **code.file** 按照 **step-.*.py** 的顺序进行执行。
 
+## 数据文件
+- **./data/crawler.json** 文件是从小某书爬取的数据文件
+- **./data/food.json** 提取的美食信息文件
+- **./data/itinerary.json** 交通工具及住宿信息的文件
+- **./data/travelAnalysis.json** 景点数据相关的文件
+
+## 使用说明
+使用 **step1** 相关内容，需要在在配置 **config.ini** 中配置大模型连接信息。
+使用 **step2** 和 **step3** 相关内容，需要在在配置 **config.ini** 中配置neo4j相关信息。
+使用 **step4** 相关内容，需要在在配置 **config.ini** 中配置大模型连接信息，如果huggingface无法连接，建议配置本地编码模型。
