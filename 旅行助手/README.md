@@ -36,3 +36,9 @@
 - ** config.ini ** 需要修改【embedding_model/model_name】 需要下载向量编码模型。
 - ** code.file ** 按照 ** step-.*.py ** 的顺序进行执行。
 
+## 数据文件
+- ** ./data/crawler.json ** 文件是从小某书爬取的数据文件
+- ** ./data/food.json ** 提取的美食信息文件
+- ** ./data/itinerary.json ** 交通工具及住宿信息的文件
+- ** ./data/travelAnalysis.json ** 景点数据相关的文件
+
