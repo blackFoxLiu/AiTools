@@ -27,12 +27,12 @@ config = configparser.ConfigParser()
 config.read('config.ini', encoding='utf-8')
 
 # 文件信息配置
-itinerary_output_path = config['model_output']['itinerary_output_path']
+itinerary_output_path = config['model_output']['ITINERARY_OUTPUT_PATH']
 neo4j_uri = config['neo4j']['neo4j_uri']
 account = config['neo4j']['account']
 password = config['neo4j']['password']
 travel_analysis_output_path = config['model_output']['travel_analysis_output_path']
-food_output_path = config['model_output']['food_output_path']
+food_output_path = config['model_output']['FOOD_OUTPUT_PATH']
 
 
 class MedicalGraph:

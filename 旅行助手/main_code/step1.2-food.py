@@ -109,9 +109,9 @@ def main():
     config.read('config.ini', encoding='utf-8')
 
     # 文件信息配置
-    crawler_file_path = config['file_path']['crawler_file']
-    food_prompt_path = config['file_path']['food_prompt']
-    food_output_path = config['model_output']['food_output_path']
+    crawler_file_path = config['file_path']['CRAWLER_FILE']
+    food_prompt_path = config['file_path']['FOOD_PROMPT']
+    food_output_path = config['model_output']['FOOD_OUTPUT_PATH']
 
     # 模型配置
     model_name = config['model_config']['model_name']

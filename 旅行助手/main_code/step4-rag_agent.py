@@ -79,12 +79,12 @@ def get_config(section_key: str, default: str = None) -> str:
 # 加载配置
 model_name = get_config('openai_model_config.model_name', DEFAULT_CONFIG['openai_model_config.model_name'])
 base_url = get_config('openai_model_config.base_url', DEFAULT_CONFIG['openai_model_config.base_url'])
-embedding_model_name = get_config('embedding_model.model_name', DEFAULT_CONFIG['embedding_model.model_name'])
-chroma_db_path = get_config('file_path.chroma_db_path', DEFAULT_CONFIG['file_path.chroma_db_path'])
-rag_file_path = get_config('file_path.rag_file_path', DEFAULT_CONFIG['file_path.rag_file_path'])
-rag_eva_resp_prompt = get_config('file_path.rag_eva_resp_prompt', DEFAULT_CONFIG['file_path.rag_eva_resp_prompt'])
-rag_analysis_prompt = get_config('file_path.rag_analysis_prompt', DEFAULT_CONFIG['file_path.rag_analysis_prompt'])
-rag_chat_prompt = get_config('file_path.rag_chat_prompt', DEFAULT_CONFIG['file_path.rag_chat_prompt'])
+embedding_model_name = get_config('embedding_model.model_name', DEFAULT_CONFIG['embedding_model.model1_name'])
+chroma_db_path = get_config('file_path.CHROMA_DB_PATH', DEFAULT_CONFIG['file_path.chroma_db_path'])
+rag_file_path = get_config('file_path.RAG_FILE_PATH', DEFAULT_CONFIG['file_path.rag_file_path'])
+rag_eva_resp_prompt = get_config('file_path.RAG_EVA_RESP_PROMPT', DEFAULT_CONFIG['file_path.rag_eva_resp_prompt'])
+rag_analysis_prompt = get_config('file_path.RAG_ANALYSIS_PROMPT', DEFAULT_CONFIG['file_path.rag_analysis_prompt'])
+rag_chat_prompt = get_config('file_path.RAG_CHAT_PROMPT', DEFAULT_CONFIG['file_path.rag_chat_prompt'])
 
 # 文本分割参数
 chunk_size = int(get_config('text_splitter.chunk_size', DEFAULT_CONFIG['text_splitter.chunk_size']))

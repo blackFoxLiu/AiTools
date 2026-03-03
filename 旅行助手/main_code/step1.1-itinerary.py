@@ -130,10 +130,10 @@ def main():
     config.read('config.ini', encoding='utf-8')
 
     # 文件信息配置
-    crawler_file_path = config['file_path']['crawler_file']
-    travel_tools_v1_prompt_path = config['file_path']['travel_tools_v1_prompt']
-    travel_tools_v2_prompt_path = config['file_path']['travel_tools_v2_prompt']
-    itinerary_output_path = config['model_output']['itinerary_output_path']
+    crawler_file_path = config['file_path']['CRAWLER_FILE']
+    travel_tools_v1_prompt_path = config['file_path']['TRAVEL_TOOLS_V1_PROMPT']
+    travel_tools_v2_prompt_path = config['file_path']['TRAVEL_TOOLS_V2_PROMPT']
+    itinerary_output_path = config['model_output']['ITINERARY_OUTPUT_PATH']
 
     # 模型配置
     model_name = config['model_config']['model_name']

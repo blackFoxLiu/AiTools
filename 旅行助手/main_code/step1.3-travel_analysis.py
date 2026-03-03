@@ -25,10 +25,10 @@ config = configparser.ConfigParser()
 config.read('config.ini', encoding='utf-8')
 
 # ---------- 默认配置 ----------
-DEFAULT_INPUT_JSON_PATH = config['file_path']['crawler_file']
-DEFAULT_PROMPT_TRAVEL_PATH = config['file_path']['travel_travel_prompt']
-DEFAULT_PROMPT_LABEL_PATH = config['file_path']['travel_label_prompt']
-DEFAULT_OUTPUT_PATH = config['model_output']['travel_analysis_output_path']  # 建议配置为 .json 后缀
+DEFAULT_INPUT_JSON_PATH = config['file_path']['CRAWLER_FILE']
+DEFAULT_PROMPT_TRAVEL_PATH = config['file_path']['TRAVEL_ANALYSIS_PROMPT']
+DEFAULT_PROMPT_LABEL_PATH = config['file_path']['TRAVEL_LABEL_PROMPT']
+DEFAULT_OUTPUT_PATH = config['model_output']['TRAVEL_ANALYSIS_OUTPUT_PATH']  # 建议配置为 .json 后缀
 
 # 模型配置
 model_name = config['model_config']['model_name']

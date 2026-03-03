@@ -18,7 +18,7 @@ config = configparser.ConfigParser()
 config.read('config.ini', encoding='utf-8')
 # 文件信息配置
 SCENIC_INFO_FILE = config['model_output']['SCENIC_INFO_FILE']
-rag_file_path = config['file_path']['rag_file_path']
+RAG_FILE_PATH = config['file_path']['RAG_FILE_PATH']
 TOOLS_INFO_FILE = config['model_output']['TOOLS_INFO_FILE']
 FOOD_INFO_FILE = config['model_output']['FOOD_INFO_FILE']
 HOTELS_INFO_FILE = config['model_output']['HOTELS_INFO_FILE']
@@ -26,6 +26,10 @@ TRAVEL_PATH_FILE = config['model_output']['TRAVEL_PATH_FILE']
 neo4j_uri = config['neo4j']['neo4j_uri']
 account = config['neo4j']['account']
 password = config['neo4j']['password']
+
+# 初始化创建路径
+if not os.path.exists(RAG_FILE_PATH):
+    os.mkdir(RAG_FILE_PATH)
 
 # ==================== 配置信息 ====================
 NEO4J_CONFIG = {
@@ -35,7 +39,6 @@ NEO4J_CONFIG = {
 }
 
 PAGE_SIZE = 20  # 分页大小
-
 
 # ==================== 数据库连接 ====================
 class Neo4jConnection:
@@ -462,11 +465,11 @@ def main():
     logging.info(f"总 Food 数: {food_total}, 分页数: {food_total_pages}")
 
     # 打开输出文件（覆盖模式）
-    with open(os.path.join(rag_file_path, SCENIC_INFO_FILE), 'w', encoding='utf-8') as f_scenic, \
-         open(os.path.join(rag_file_path, FOOD_INFO_FILE), 'w', encoding='utf-8') as f_foods, \
-         open(os.path.join(rag_file_path, TOOLS_INFO_FILE), 'w', encoding='utf-8') as f_tools, \
-         open(os.path.join(rag_file_path, TRAVEL_PATH_FILE), 'w', encoding='utf-8') as f_paths, \
-         open(os.path.join(rag_file_path, HOTELS_INFO_FILE), 'w', encoding='utf-8') as f_hotels:
+    with open(os.path.join(RAG_FILE_PATH, SCENIC_INFO_FILE), 'w', encoding='utf-8') as f_scenic, \
+         open(os.path.join(RAG_FILE_PATH, FOOD_INFO_FILE), 'w', encoding='utf-8') as f_foods, \
+         open(os.path.join(RAG_FILE_PATH, TOOLS_INFO_FILE), 'w', encoding='utf-8') as f_tools, \
+         open(os.path.join(RAG_FILE_PATH, TRAVEL_PATH_FILE), 'w', encoding='utf-8') as f_paths, \
+         open(os.path.join(RAG_FILE_PATH, HOTELS_INFO_FILE), 'w', encoding='utf-8') as f_hotels:
 
         # 用于全局去重的from_to名称集合
         processed_from_to: Set[str] = set()
