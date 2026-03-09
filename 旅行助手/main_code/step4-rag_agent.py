@@ -79,7 +79,7 @@ def get_config(section_key: str, default: str = None) -> str:
 # 加载配置
 model_name = get_config('openai_model_config.model_name', DEFAULT_CONFIG['openai_model_config.model_name'])
 base_url = get_config('openai_model_config.base_url', DEFAULT_CONFIG['openai_model_config.base_url'])
-embedding_model_name = get_config('embedding_model.model_name', DEFAULT_CONFIG['embedding_model.model1_name'])
+embedding_model_name = get_config('embedding_model.model_name', DEFAULT_CONFIG['embedding_model.model_name'])
 chroma_db_path = get_config('file_path.CHROMA_DB_PATH', DEFAULT_CONFIG['file_path.chroma_db_path'])
 rag_file_path = get_config('file_path.RAG_FILE_PATH', DEFAULT_CONFIG['file_path.rag_file_path'])
 rag_eva_resp_prompt = get_config('file_path.RAG_EVA_RESP_PROMPT', DEFAULT_CONFIG['file_path.rag_eva_resp_prompt'])
