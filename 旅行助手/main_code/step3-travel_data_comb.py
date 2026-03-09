@@ -88,14 +88,17 @@ def fetch_scenic_for_main_scenic(db: Neo4jConnection, main_scenic_name: str):
 
 
 # ==================== 查询 Food 节点 ====================
-def fetch_food_for_main_scenic(db: Neo4jConnection, main_scenic_name: str):
+def fetch_food_for_main_scenic(db: Neo4jConnection, main_scenic_name: str, skip, page_size):
     cql = """
         MATCH (s:Main_Scenic {name: $name})<-[:have]-(f:Food)
         RETURN f
+        ORDER BY f.name
+        SKIP $skip
+        LIMIT $limit
     """
     # 收集所有匹配的 f 节点
     nodes = []
-    cursor = db.run_query(cql, name=main_scenic_name)
+    cursor = db.run_query(cql, name=main_scenic_name, skip=skip, limit=page_size)
     # 直接遍历游标，提取每个记录的 spot_name
     for record in cursor:
         node = record["f"]  # 获取节点对象
@@ -159,9 +162,12 @@ def get_scenic_count(db: Neo4jConnection) -> int:
 
 
 # ==================== 获取 Main_Scenic 总数 ====================
-def get_food_count(db: Neo4jConnection) -> int:
+def get_food_count(db: Neo4jConnection, scenic_name) -> int:
     """获取 Main_Scenic 总数"""
-    result = db.run_query("MATCH (s:Food) RETURN count(s) AS total")
+    cql = """
+        MATCH (f:Food)-[:have]->(s:Main_Scenic{name:$name}) RETURN count(f) AS total
+    """
+    result = db.run_query(cql, name=scenic_name)
     return result.evaluate()
 
 
@@ -169,15 +175,12 @@ def format_food_info(scenic_node, page, total_pages) -> str:
     skip = page * PAGE_SIZE
     logging.info(f"处理第 {page + 1}/{total_pages} 页 (skip={skip})")
 
-    # 1. 获取当前页的 Main_Scenic 基本信息
-    main_scenic_page = fetch_main_scenic_page(db, skip, PAGE_SIZE)
-
     """生成景点基本信息描述"""
     props = dict(scenic_node)
     name = props.get("name")
 
     # 批量查询美食结点
-    food_nodes = fetch_food_for_main_scenic(db, name)
+    food_nodes = fetch_food_for_main_scenic(db, name, skip, PAGE_SIZE)
     if not name or len(food_nodes) == 0:
         return ""
 
@@ -459,11 +462,6 @@ def main():
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     logging.info(f"总 Main_Scenic 数: {total}, 分页数: {total_pages}")
 
-    # 获取总景点数，计算页数
-    food_total = get_food_count(db)
-    food_total_pages = (food_total + PAGE_SIZE - 1) // PAGE_SIZE
-    logging.info(f"总 Food 数: {food_total}, 分页数: {food_total_pages}")
-
     # 打开输出文件（覆盖模式）
     with open(os.path.join(RAG_FILE_PATH, SCENIC_INFO_FILE), 'w', encoding='utf-8') as f_scenic, \
          open(os.path.join(RAG_FILE_PATH, FOOD_INFO_FILE), 'w', encoding='utf-8') as f_foods, \
@@ -505,6 +503,14 @@ def main():
                 scenic_name = scenic_node.get("name", "")
                 if not scenic_name:
                     continue
+
+                if scenic_name == "九寨沟":
+                    print("fdsafdsaf")
+
+                # 获取总景点数，计算页数
+                food_total = get_food_count(db, scenic_name)
+                food_total_pages = (food_total + PAGE_SIZE - 1) // PAGE_SIZE
+                logging.debug(f"总 Food 数: {food_total}, 分页数: {food_total_pages}")
 
                 # Food 标签分页
                 for food_page in range(food_total_pages):
