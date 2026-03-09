@@ -390,7 +390,7 @@ def format_tools_info(from_to_list: List[Dict], processed_from_to: Set[str]) -> 
         processed_from_to.add(ft_name)
 
         # 解析 from 名称，格式应为 "A到达B"
-        places = ft_name.split("=")
+        places = ft_name.split("到达")
         if len(places) != 2:
             continue
         departure, destination = places[0], places[1]
