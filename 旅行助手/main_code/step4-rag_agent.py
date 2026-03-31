@@ -19,6 +19,12 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms.ollama import Ollama
 from langchain_community.vectorstores import Chroma
 
+# 日志配置（只添加一次StreamHandler）
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logger.addHandler(logging.StreamHandler(sys.stdout))
+
 # 尝试导入自定义工具函数，若失败则使用占位（实际需保证该函数存在）
 try:
     from utils.common_tools import get_prompt_str
@@ -32,12 +38,6 @@ except ImportError:
                 return f.read()
         except Exception as e:
             raise RuntimeError(f"无法读取提示文件 {file_path}: {e}")
-
-# 日志配置（只添加一次StreamHandler）
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    logger.addHandler(logging.StreamHandler(sys.stdout))
 
 # 配置加载
 config = configparser.ConfigParser()
@@ -62,7 +62,6 @@ DEFAULT_CONFIG = {
     'text_splitter.separators': '\n',  # 多个分隔符用逗号分隔
     'retriever.k': '16',
 }
-
 
 def get_config(section_key: str, default: str = None) -> str:
     """安全获取配置值，若缺失则返回默认值或抛出异常"""
