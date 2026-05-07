@@ -1,14 +1,13 @@
 import logging
-from typing import Dict, Any, List, Optional, Annotated, TypedDict, Union, Literal
+from typing import Dict, Any, List, Optional, Annotated, TypedDict, Literal
 
-from langchain.tools import tool
-from langchain_core.output_parsers import StrOutputParser
-from langchain_ollama import ChatOllama
 from langchain.agents import create_agent
+from langchain.tools import tool
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage
+from langchain_ollama import ChatOllama
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
-from langgraph.graph.message import add_messages, MessagesState
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
 from knowledge_graph_tools import Neo4jQueryTools
@@ -32,6 +31,7 @@ class MedicalInquiryState(TypedDict):
     present_illness: PresentIllness
     associated_symptoms: List[str]
     existing_knowledge_supplement: List[str]  # 当信息不充足时，使用当前数据信息，查询可能存在的病症，提供参考
+    missing_return_messages: str
     # 补充信息
     is_sufficient: bool  # stepA 判断结果：当前信息是否足够
     missing_info: List[str]  # 缺失的病症信息项（如“疼痛部位”“持续时间”）
@@ -107,7 +107,7 @@ class MedicalDataDiscovery:
 
     def get_model_chief_complaint(self, state: MedicalInquiryState) -> Dict[str, Any]:
         # ----- 日志 -----
-        logger.info("\n[节点] get_model_chief_complaint - 开始提取主诉")
+        logger.info("[节点] get_model_chief_complaint - 开始提取主诉")
         logger.info(f"  输入消息数: {len(state.get('messages', []))}")
         # ----------------
         messages = state["messages"]
@@ -128,7 +128,7 @@ class MedicalDataDiscovery:
         :return:
         """
         # ----- 日志 -----
-        logger.info("\n[节点] get_present_illness - 开始提取现病史")
+        logger.info("[节点] get_present_illness - 开始提取现病史")
         # ----------------
         messages = state["messages"]
         tmp_chief_complaint = """
@@ -174,7 +174,7 @@ class MedicalDataDiscovery:
         :return:
         """
         # ----- 日志 -----
-        logger.info("\n[节点] get_concomitant_symptoms - 开始提取伴随症状")
+        logger.info("[节点] get_concomitant_symptoms - 开始提取伴随症状")
         # ----------------
         messages = state["messages"]
         tmp_prompt = """
@@ -213,7 +213,7 @@ class MedicalDataDiscovery:
         判断当前收集到的症状信息是否足够进行病症分析。
         输出 missing_info, confidence。
         """
-        logger.info("\n[节点] classify_sufficiency - 判断信息充分性")
+        logger.info("[节点] classify_sufficiency - 判断信息充分性")
         chief = state.get("chief_complaint", "")
         present = state.get("present_illness", {})
         associated = state.get("associated_symptoms", [])
@@ -260,7 +260,7 @@ class MedicalDataDiscovery:
         使用当前已提取的症状信息查询医学知识库，将结果存入 rag_context。
         此节点可在判断充分性之前或之后调用，增强后续节点的知识背景。
         """
-        logger.info("\n[节点] enhance_with_rag - 查询RAG知识库")
+        logger.info("[节点] enhance_with_rag - 查询RAG知识库")
         chief = state.get("chief_complaint", "")
         present_illness = state.get("present_illness", {})
         associated = state.get("associated_symptoms", [])
@@ -277,6 +277,7 @@ class MedicalDataDiscovery:
             query_parts.append(f"伴随症状：{', '.join(associated)}")
 
         query_str = "，".join(query_parts)
+        logger.info("医疗信息充分，RAG检索问题："+query_str)
         # 调用 RAG 服务
         results = self.rag_service.query(query_str, top_k=3)  # 返回列表
 
@@ -287,7 +288,7 @@ class MedicalDataDiscovery:
             logger.info(f"  检索到 {len(results)} 条结果")
         else:
             context_str = "未检索到相关知识。"
-            logger.info("  未检索到相关知识")
+            logger.info("未检索到相关知识")
 
         return {"rag_context": context_str}
 
@@ -296,7 +297,7 @@ class MedicalDataDiscovery:
         """
         基于现有信息（包括RAG上下文）生成初步诊断建议和下一步行动。
         """
-        logger.info("\n[节点] generate_solution - 生成解决方案")
+        logger.info("[节点] generate_solution - 生成解决方案")
         chief = state.get("chief_complaint", "")
         present = state.get("present_illness", {})
         associated = state.get("associated_symptoms", [])
@@ -334,7 +335,7 @@ class MedicalDataDiscovery:
         根据 missing_info 列表，生成要询问用户的问题，并追加到 messages 中。
         返回的 messages 将通过 add_messages 自动合并。
         """
-        logger.info("\n[节点] generate_missing_questions - 生成追问问题")
+        logger.info("[节点] generate_missing_questions - 生成追问问题")
         missing = state.get("missing_info", [])
         logger.info(f"  缺失信息列表: {missing}")
         if not missing:
@@ -362,21 +363,20 @@ class MedicalDataDiscovery:
 
 
         输出：
-        需要补充的临床提问信息：
-        str——根据提供的** 模型分析认为对疾病推理的缺失询问信息 ** 进行推导总结。
-        可能存在的病症
-        名称：str
-        常见症状：str
-        诱因：str
-        建议：str
-        可能性：百分比
-
+            需要补充的临床提问信息：
+            str——根据提供的** 模型分析认为对疾病推理的缺失询问信息 ** 进行推导总结。
+            可能存在的病症
+            名称：str
+            常见症状：str
+            诱因：str
+            建议：str
+            可能性：百分比
         """
         model_rsp_message = self.ollama_model.invoke([SystemMessage(content=prompt)])
         content = model_rsp_message.content.strip()
 
-        logger.info(f"  生成的问题:\n{content}")
-        return {"messages": [AIMessage(content=content)]}
+        logger.info(f"生成的问题:\n{content}")
+        return {"missing_return_messages": content}
 
     # ===== 优化：重新判断信息充分性（复用 classify_sufficiency）=====
     def recheck_sufficiency(self, state: MedicalInquiryState) -> Dict[str, Any]:
@@ -384,7 +384,7 @@ class MedicalDataDiscovery:
         在提取完缺失信息后，再次判断信息是否充分。
         直接调用 classify_sufficiency 节点，但需要单独定义以避免循环调用。
         """
-        logger.info("\n[节点] recheck_sufficiency - 再次判断信息充分性")
+        logger.info("[节点] recheck_sufficiency - 再次判断信息充分性")
         return self.classify_sufficiency(state)
 
     # ===== 路由函数：根据信息是否充足决定下一步 =====
@@ -518,7 +518,7 @@ class MedicalDataDiscovery:
         )
         graph_builder.add_edge("generate_missing_questions", END)
 
-        logger.info("\n[图编译完成] 辅助诊断助手 Agent 已初始化\n")
+        logger.info("[图编译完成] 辅助诊断助手 Agent 已初始化\n")
 
         # 编译图
         return graph_builder.compile()
