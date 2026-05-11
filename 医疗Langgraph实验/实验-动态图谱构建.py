@@ -229,17 +229,63 @@ def process_symptom_relationships(state: DynamicKnowledgeState):
             merge_symptom_relationship(a, b)   # 内部自动处理存在则权重+步长
     return {}
 
+# ==================== 症状-疾病关系处理（带权重累加）====================
+# 可单独配置症状-疾病关系的步长（也可复用上面的，但为了灵活性单独定义）
+SYMPTOM_DISEASE_WEIGHT_STEP = 1
+
+def merge_symptom_disease_relationship(symptom_name: str, disease_name: str) -> str:
+    """
+    创建或更新从 symptom 节点到 disease_analysis 节点的 :include_disease 关系。
+    - 如果关系不存在，则创建并设置 weight = SYMPTOM_DISEASE_WEIGHT_STEP。
+    - 如果已存在，则 weight 增加 SYMPTOM_DISEASE_WEIGHT_STEP。
+    方向：(symptom)-[:include_disease]->(disease)
+    """
+    logger.info(f"合并症状-疾病关系：({symptom_name})-[:include_disease]->({disease_name})，权重增加 {SYMPTOM_DISEASE_WEIGHT_STEP}")
+    cypher = f"""
+    MATCH (s:basic_symptom {{name: '{symptom_name}'}}), (d:disease_analysis {{name: '{disease_name}'}})
+    MERGE (s)-[r:include_disease]->(d)
+    ON CREATE SET r.weight = {SYMPTOM_DISEASE_WEIGHT_STEP}
+    ON MATCH SET r.weight = r.weight + {SYMPTOM_DISEASE_WEIGHT_STEP}
+    """
+    client = Neo4jQueryTools()
+    client.use_cypher(cypher)
+    return f"症状-疾病关系 ({symptom_name})-[:include_disease]->({disease_name}) 已处理"
+
+def process_symptom_disease_relations(state: DynamicKnowledgeState):
+    """
+    建立每个主诉症状与当前疾病之间的 include_disease 关系，并累加权重。
+    注意：此节点应放在 process_disease_analysis 之后，确保疾病节点已存在。
+    """
+    logger.info("process_symptom_disease_relations 进入")
+    analysis = state["disease_analysis"]
+    disease_name = analysis.get("disease_name")
+    if not disease_name:
+        logger.error("disease_analysis 中缺少 disease_name 字段，无法建立症状-疾病关系")
+        return {}
+
+    symptoms = analysis.get("primitive_concept_symptom", {}).get("chief_complaint_list", [])
+    if not symptoms:
+        logger.info("无主诉症状，无需建立症状-疾病关系")
+        return {}
+
+    for symptom in symptoms:
+        merge_symptom_disease_relationship(symptom, disease_name)
+    return {}
+
 # ==================== Graph 构建 ====================
 if __name__ == '__main__':
     graph = StateGraph(DynamicKnowledgeState)
     graph.add_node("check_basic_symptom_node", check_basic_symptom_node)
     graph.add_node("process_symptom_relationships", process_symptom_relationships)
     graph.add_node("process_disease_analysis", process_disease_analysis)
+    graph.add_node("process_symptom_disease_relations", process_symptom_disease_relations)
 
     graph.add_edge(START, "check_basic_symptom_node")
     graph.add_edge("check_basic_symptom_node", "process_symptom_relationships")
     graph.add_edge("process_symptom_relationships", "process_disease_analysis")
-    graph.add_edge("process_disease_analysis", END)
+    # 在 disease_analysis 之后处理症状-疾病关系
+    graph.add_edge("process_disease_analysis", "process_symptom_disease_relations")
+    graph.add_edge("process_symptom_disease_relations", END)
 
     app = graph.compile()
 
