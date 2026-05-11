@@ -172,10 +172,10 @@ def process_disease_analysis(state: DynamicKnowledgeState):
         "chief_complaint": analysis.get("primitive_concept_symptom", {}).get("chief_complaint_list", []),
         "complications": analysis.get("complications", []),            # 若模型未提供则暂为空列表
         "treatment_plan": analysis.get("treatment_plan", ""),
-        "disease_course": analysis.get("disease_course", {}),
-        "human_body_system": analysis.get("human_body_system", {}),
-        "manifestation_characteristics": analysis.get("manifestation_characteristics", {}),
-        "symptom_nature": analysis.get("symptom_nature", {})
+        "disease_course": analysis.get("disease_course", {}).get("primary_course", ""),
+        "human_body_system": analysis.get("human_body_system", {}).get("primary_system", ""),
+        "manifestation_characteristics": analysis.get("manifestation_characteristics", {}).get("primary_characteristic", ""),
+        "symptom_nature": analysis.get("symptom_nature", {}).get("primary_property", "")
     }
 
     exists = check_disease_analysis_exists(disease_name)
@@ -187,31 +187,32 @@ def process_disease_analysis(state: DynamicKnowledgeState):
     # 返回空字典，不修改 state 其他内容（如需传递信息可设置 next_agent 等）
     return {}
 
-# ==================== 症状间关系处理（带权重累加）====================
-# 可配置的权重增量步长，方便后续修改
-RELATION_WEIGHT_STEP = 1
+# ==================== 症状间关系处理（无向边，每对只创建一条关系，权重增量0.5）====================
+# 症状间关系权重步长（每次增加0.5）
+SYMPTOM_SYMPTOM_WEIGHT_STEP = 0.5
 
 def merge_symptom_relationship(symptom_a: str, symptom_b: str) -> str:
     """
-    创建或更新从 symptom_a 到 symptom_b 的 :symptom 关系。
-    - 如果关系不存在，则创建并设置 weight = 初始值（默认1）。
-    - 如果已存在，则 weight 增加 RELATION_WEIGHT_STEP（默认+1）。
+    创建或更新从 symptom_a 到 symptom_b 的 :symptom 关系（无向语义，只创建一条有向边）。
+    - 如果关系不存在，则创建并设置 weight = SYMPTOM_SYMPTOM_WEIGHT_STEP。
+    - 如果已存在，则 weight 增加 SYMPTOM_SYMPTOM_WEIGHT_STEP。
     """
-    logger.info(f"合并关系：({symptom_a})-[:symptom]->({symptom_b})，权重增加 {RELATION_WEIGHT_STEP}")
+    logger.info(f"合并症状间关系：({symptom_a})-[:symptom]-({symptom_b})，权重增加 {SYMPTOM_SYMPTOM_WEIGHT_STEP}")
     cypher = f"""
     MATCH (a:basic_symptom {{name: '{symptom_a}'}}), (b:basic_symptom {{name: '{symptom_b}'}})
-    MERGE (a)-[r:symptom]->(b)
-    ON CREATE SET r.weight = {RELATION_WEIGHT_STEP}
-    ON MATCH SET r.weight = r.weight + {RELATION_WEIGHT_STEP}
+    MERGE (a)-[r:symptom]-(b)
+    ON CREATE SET r.weight = {SYMPTOM_SYMPTOM_WEIGHT_STEP}
+    ON MATCH SET r.weight = r.weight + {SYMPTOM_SYMPTOM_WEIGHT_STEP}
     """
     client = Neo4jQueryTools()
     client.use_cypher(cypher)
-    return f"关系 ({symptom_a})-[:symptom]->({symptom_b}) 已处理（当前权重步长: {RELATION_WEIGHT_STEP}）"
+    return f"症状间关系 ({symptom_a})-[:symptom]-({symptom_b}) 已处理"
 
 def process_symptom_relationships(state: DynamicKnowledgeState):
     """
-    处理主诉症状列表中两两之间的 symptom 关系，带有权重累加。
-    对于每一对不同的症状，确保存在双向关系，且权重每次调用增加 RELATION_WEIGHT_STEP。
+    处理主诉症状列表中两两之间的 symptom 关系（无向，每对只创建一条有向边）。
+    对于每一对不同的症状（i < j），创建从 symptoms[i] 到 symptoms[j] 的关系，
+    权重每次调用增加 SYMPTOM_SYMPTOM_WEIGHT_STEP。
     """
     logger.info("process_symptom_relationships 进入")
     symptoms = state["disease_analysis"].get("primitive_concept_symptom", {}).get("chief_complaint_list", [])
@@ -219,18 +220,16 @@ def process_symptom_relationships(state: DynamicKnowledgeState):
         logger.info("症状数量不足2个，无需创建关系")
         return {}
 
-    # 生成所有有序对（双向）
+    # 生成所有无序对，只创建一条有向边（从索引小的指向索引大的）
     for i in range(len(symptoms)):
-        for j in range(len(symptoms)):
-            if i == j:
-                continue
+        for j in range(i + 1, len(symptoms)):
             a = symptoms[i]
             b = symptoms[j]
-            merge_symptom_relationship(a, b)   # 内部自动处理存在则权重+步长
+            merge_symptom_relationship(a, b)   # 只创建 a->b 方向，视为无向
     return {}
 
 # ==================== 症状-疾病关系处理（带权重累加）====================
-# 可单独配置症状-疾病关系的步长（也可复用上面的，但为了灵活性单独定义）
+# 症状-疾病关系权重步长（可独立配置）
 SYMPTOM_DISEASE_WEIGHT_STEP = 1
 
 def merge_symptom_disease_relationship(symptom_name: str, disease_name: str) -> str:
@@ -283,7 +282,6 @@ if __name__ == '__main__':
     graph.add_edge(START, "check_basic_symptom_node")
     graph.add_edge("check_basic_symptom_node", "process_symptom_relationships")
     graph.add_edge("process_symptom_relationships", "process_disease_analysis")
-    # 在 disease_analysis 之后处理症状-疾病关系
     graph.add_edge("process_disease_analysis", "process_symptom_disease_relations")
     graph.add_edge("process_symptom_disease_relations", END)
 
