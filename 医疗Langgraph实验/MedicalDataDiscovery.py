@@ -498,6 +498,7 @@ class MedicalDataDiscovery:
                 疾病名称：字符串
                 疾病存在的症状：字符串
                 疾病引起原因：字符串。
+                疾病确定概率：百分比——例如 60%
 
                 下面是用户输入数据：
                 症状：{knowledge_query_data}
@@ -509,7 +510,7 @@ class MedicalDataDiscovery:
         logger.info(summary_disease_list)
 
         # 不改变任何状态，后续会由 generate_missing_questions 生成问题
-        return {"existing_knowledge_supplement": summary_disease_list}
+        return {"existing_knowledge_supplement": [s.replace('\n', '') for s in summary_disease_list]}
 
     def get_graph(self):
         """
@@ -594,7 +595,7 @@ if __name__ == '__main__':
     messages = [HumanMessage(content="今天早上头疼，有些流鼻涕。无咳嗽")]
     logger.info("=== 开始测试 ===")
     graph_client = MedicalDataDiscovery()
-    result = graph_client.get_medical_data_discovery(messages)
+    result = graph_client.get_medical_data_discovery(messages, {})
 
     print("\n=== 最终结果（完整状态） ===")
     for key, value in result.items():
