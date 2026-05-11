@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class SessionStore:
-    """会话持久化存储管理器（基于 JSON 文件）"""
+    """
+    会话持久化存储管理器（基于 JSON 文件）
+    每个意图（intention）对应一个发现数据（discovery_data）和一个路由选择（chat_intention_router）
+    """
 
     def __init__(self, storage_dir: str = "./chat_sessions"):
         self.storage_dir = storage_dir
@@ -27,31 +30,34 @@ class SessionStore:
         rand_suffix = str(uuid.uuid4())[:8]
         return f"{timestamp}_{rand_suffix}"
 
-    def _extract_title_from_intentions(self, intentions: List[HumanMessage]) -> str:
+    def _extract_title_from_intentions(self, intentions: List[Dict[str, Any]]) -> str:
         """
-        从意图列表中提取主要意图作为会话标题。
-        优先使用最后一个意图的 main_intention，如果解析失败则返回默认标题。
+        从意图列表中提取标题，优先使用最后一个意图的 main_intention
+        intentions 是包含 intention 字段的字典列表
         """
         if not intentions:
             return "未命名会话"
 
-        # 取最新的意图（列表末尾）
-        latest_intent = intentions[-1]
-        try:
-            intent_data = json.loads(latest_intent.content)
-            main_intention = intent_data.get("main_intention", "")
-            # 标题不宜过长，截取前 50 个字符
-            if len(main_intention) > 50:
-                main_intention = main_intention[:47] + "..."
-            return main_intention if main_intention else "未命名会话"
-        except (json.JSONDecodeError, AttributeError):
-            logger.warning("解析意图 JSON 失败，使用默认标题")
-            return "未命名会话"
+        latest = intentions[-1]
+        intention_obj = latest.get("intention", {})
+        # 兼容旧格式或新格式
+        if isinstance(intention_obj, dict):
+            main_intention = intention_obj.get("main_intention", "")
+        else:
+            # 如果是旧格式的 HumanMessage，尝试解析
+            try:
+                intent_data = json.loads(intention_obj.content)
+                main_intention = intent_data.get("main_intention", "")
+            except:
+                main_intention = ""
+        if len(main_intention) > 50:
+            main_intention = main_intention[:47] + "..."
+        return main_intention if main_intention else "未命名会话"
 
-    def create_session(self, initial_intentions: Optional[List[HumanMessage]] = None) -> str:
+    def create_session(self, initial_intentions: Optional[List[Dict[str, Any]]] = None) -> str:
         """
-        创建新会话，生成唯一 session_id，并根据初始意图（若有）生成标题。
-        返回 session_id。
+        创建新会话
+        initial_intentions: 可选的初始意图列表，每个元素包含 intention, discovery_data, chat_intention_router
         """
         session_id = self._generate_session_id()
         title = "未命名会话"
@@ -64,8 +70,10 @@ class SessionStore:
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             "messages": [],
-            "intentions": []
+            "intentions": []   # 每个元素: {"intention": {...}, "discovery_data": {...}, "chat_intention_router": str, "timestamp": str}
         }
+        if initial_intentions:
+            session_data["intentions"] = initial_intentions
         self._save_session(session_id, session_data)
         logger.info(f"创建新会话: {session_id} -> {title}")
         return session_id
@@ -85,15 +93,13 @@ class SessionStore:
         with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def update_title_from_intentions(self, session_id: str, intentions: List[HumanMessage]):
-        """根据最新的意图更新会话标题"""
-        if not intentions:
-            return
+    def update_title_from_intentions(self, session_id: str):
+        """根据当前会话的所有意图重新计算标题并更新"""
         session_data = self.load_session(session_id)
         if not session_data:
             logger.error(f"会话 {session_id} 不存在，无法更新标题")
             return
-        new_title = self._extract_title_from_intentions(intentions)
+        new_title = self._extract_title_from_intentions(session_data["intentions"])
         if new_title != session_data["title"]:
             session_data["title"] = new_title
             session_data["updated_at"] = datetime.now().isoformat()
@@ -116,15 +122,22 @@ class SessionStore:
         session_data["updated_at"] = datetime.now().isoformat()
         self._save_session(session_id, session_data)
 
-    def add_intention(self, session_id: str, intention_message: HumanMessage):
+    def add_intention_round(self, session_id: str,
+                            intention_message: HumanMessage,
+                            discovery_data: Dict[str, Any],
+                            router_value: str):
         """
-        添加一次意图提取结果（HumanMessage 对象）。
+        添加一轮完整的交互（意图 + 发现数据 + 路由选择）
+        :param intention_message: 意图提取出的 HumanMessage，其 content 应为 JSON 字符串
+        :param discovery_data: 该轮对应的探寻数据（字典）
+        :param router_value: 该轮的路由标识，如 "symptoms_inquiry" 或 "medication_inquiry"
         """
         session_data = self.load_session(session_id)
         if not session_data:
             raise ValueError(f"会话 {session_id} 不存在")
+
+        # 解析意图内容
         try:
-            import json
             intent_data = json.loads(intention_message.content)
             main_intention = intent_data.get("main_intention", "")
             sub_operate = intent_data.get("sub_operate", [])
@@ -132,52 +145,73 @@ class SessionStore:
             main_intention = ""
             sub_operate = []
             logger.warning("意图内容不是合法 JSON，原样保存 raw_content")
+            intent_data = {"raw_content": intention_message.content}
 
-        session_data["intentions"].append({
-            "main_intention": main_intention,
-            "sub_operate": sub_operate,
-            "raw_content": intention_message.content,
+        round_data = {
+            "intention": {
+                "main_intention": main_intention,
+                "sub_operate": sub_operate,
+                "raw_content": intention_message.content
+            },
+            "discovery_data": discovery_data,
+            "chat_intention_router": router_value,
             "timestamp": datetime.now().isoformat()
-        })
+        }
+        session_data["intentions"].append(round_data)
         session_data["updated_at"] = datetime.now().isoformat()
         self._save_session(session_id, session_data)
 
-        # 每次添加新意图后，尝试更新标题（通常只有最新意图决定标题）
-        self.update_title_from_intentions(session_id, [intention_message])
+        # 更新标题
+        self.update_title_from_intentions(session_id)
 
     def restore_state(self, session_id: str) -> Optional[Dict[str, Any]]:
         """
         从持久化存储恢复 MedicalChatState 所需的字段。
-        返回格式: {"messages": List[BaseMessage], "intentions": List[HumanMessage]}
+        为兼容原有 MedicalChatState 结构（顶层有 discovery_data 和 chat_intention_router），
+        这里取最后一轮的 discovery_data 和 router 填充到顶层。
+        同时返回完整的 intentions 列表（HumanMessage 对象列表）。
         """
         session_data = self.load_session(session_id)
         if not session_data:
             return None
 
+        # 恢复消息
         messages = []
         for msg in session_data["messages"]:
             if msg["role"] == "user":
                 messages.append(HumanMessage(content=msg["content"]))
             else:
-                # AIMessage 需要从 langchain_core.messages 导入，但为避免循环导入，在此处导入
                 from langchain_core.messages import AIMessage
                 messages.append(AIMessage(content=msg["content"]))
 
+        # 恢复意图轮次数据，并生成 intentions 列表（仅 HumanMessage）
         intentions = []
-        for intent in session_data["intentions"]:
-            intentions.append(HumanMessage(content=intent["raw_content"]))
+        last_discovery = {}
+        last_router = ""
+        for round_data in session_data.get("intentions", []):
+            # 将意图转为 HumanMessage
+            intent_content = round_data["intention"].get("raw_content", "")
+            if not intent_content:
+                # 兼容旧格式：重建 JSON
+                intent_content = json.dumps({
+                    "main_intention": round_data["intention"].get("main_intention", ""),
+                    "sub_operate": round_data["intention"].get("sub_operate", [])
+                })
+            intentions.append(HumanMessage(content=intent_content))
+            # 记录最后一轮的数据
+            last_discovery = round_data.get("discovery_data", {})
+            last_router = round_data.get("chat_intention_router", "")
 
         return {
             "messages": messages,
-            "intentions": intentions,
-            "discovery_data": {},   # 探寻数据通常运行时动态生成，不持久化
+            "intentions": intentions,          # 列表中的 HumanMessage 顺序与存储顺序一致
+            "discovery_data": last_discovery,  # 兼容：当前工作流所需的最新发现数据
             "solution": "",
-            "chat_intention_router": "symptoms_inquiry",
-            "session_id": session_id   # 额外携带 session_id 以便后续使用
+            "chat_intention_router": last_router,  # 兼容：当前工作流所需的最新路由
+            "session_id": session_id
         }
 
     def list_sessions(self) -> List[Dict[str, str]]:
-        """列出所有会话的摘要信息（id, title, updated_at）"""
         sessions = []
         for filename in os.listdir(self.storage_dir):
             if filename.endswith(".json"):
