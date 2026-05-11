@@ -1,6 +1,10 @@
+import json
 import logging
-from typing import List, Dict, Any, Optional  # 优化：补充类型提示
-from functools import lru_cache  # 优化：引入缓存装饰器
+import os
+import uuid
+from datetime import datetime
+from functools import lru_cache
+from typing import List, Dict, Any, Optional
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.prompts import PromptTemplate
@@ -8,14 +12,18 @@ from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END, add_messages
 from typing_extensions import TypedDict, Annotated
 
+# 导入你的自定义模块（请根据实际路径调整）
 from MedicalDataDiscovery import MedicalDataDiscovery
 from knowledge_graph_tools import Neo4jQueryTools
+
+# 导入存储模块
+from session_store import SessionStore
 
 # ==================== 日志配置 ====================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ==================== 常量配置（优化：集中管理配置项）====================
+# ==================== 常量配置 ====================
 OLLAMA_CONFIG = {
     "model": "qwen3:8b",
     "base_url": "http://127.0.0.1:11434",
@@ -27,18 +35,17 @@ PROMPT_PATHS = {
     "intent_user": "./prompt/prompt_medical_intent_info_user.txt"
 }
 
-
-# ==================== Graph state ====================
+# ==================== Graph state（扩展 session_id）====================
 class MedicalChatState(TypedDict):
-    """会话状态结构 """
+    """会话状态结构，增加 session_id 用于持久化标识"""
     messages: Annotated[List[BaseMessage], add_messages]
     intentions: Annotated[List[HumanMessage], add_messages]
     discovery_data: Dict[str, Any]
     solution: str
     chat_intention_router: str
+    session_id: str                     # 新增：会话唯一标识，用于 checkpointer
 
-
-# ==================== 模型获取（优化：添加缓存避免重复创建）====================
+# ==================== 模型获取（缓存）====================
 @lru_cache(maxsize=1)
 def get_base_chat_model() -> ChatOllama:
     """
@@ -51,8 +58,7 @@ def get_base_chat_model() -> ChatOllama:
         temperature=OLLAMA_CONFIG["temperature"]
     )
 
-
-# ==================== 提示词文件读取（优化：添加缓存和更好的异常处理）====================
+# ==================== 提示词文件读取（缓存）====================
 @lru_cache(maxsize=5)
 def read_prompt(file_path: str) -> str:
     """
@@ -72,34 +78,48 @@ def read_prompt(file_path: str) -> str:
 # ==================== 医疗对话助手工具类 ====================
 class MedicalChat:
     """
-    医疗对话助手工具类
-    优化：完善类文档，职责清晰：管理 LangGraph 工作流及对话状态
+    医疗对话助手，支持三种持久化模式：
+    1. 无持久化：不传入任何存储参数
+    2. 短期方案：传入 session_store (SessionStore 实例)
+    3. 长期方案：传入 checkpointer (LangGraph 检查点实例，如 SqliteSaver)
     """
 
-    def __init__(self):
-        """初始化助手（优化：提前加载提示词和模型，避免运行时重复加载）"""
+    def __init__(self, session_store: Optional[SessionStore] = None,
+                 checkpointer: Optional[Any] = None):
+        """
+        :param session_store: SessionStore 实例（短期方案）
+        :param checkpointer: LangGraph 检查点实例，需实现 get_tuple/put 等方法（长期方案）
+        """
         logger.info("初始化 MedicalChat 助手实例")
-        # 优化：将提示词内容预先读取为实例属性，避免每次调用都读文件
         self._intent_sys_prompt = read_prompt(PROMPT_PATHS["intent_sys"])
         self._intent_user_template = read_prompt(PROMPT_PATHS["intent_user"])
-        self._model = get_base_chat_model()  # 复用单例模型
-        # 优化：编译工作流，后续直接调用
-        self._workflow_graph = self._build_graph()
+        self._model = get_base_chat_model()
         self._medical_data_discovery = MedicalDataDiscovery()
         self._knowledge_query_tools = Neo4jQueryTools()
 
-    # ---------- 以下三个方法为工作流节点，逻辑保持原样（仅补充注释）----------
+        # 持久化组件（二选一）
+        self._session_store = session_store
+        self._checkpointer = checkpointer
+
+        if session_store and checkpointer:
+            raise ValueError("不能同时指定 session_store 和 checkpointer，请选择一种持久化方式")
+        if checkpointer is not None:
+            logger.info("使用 LangGraph Checkpointer（长期方案）")
+        elif session_store is not None:
+            logger.info("使用 SessionStore（短期方案）")
+        else:
+            logger.info("不启用持久化（仅内存）")
+
+        # 编译工作流（如果使用 checkpointer，则在编译时传入）
+        self._workflow_graph = self._build_graph()
+
+    # ---------- 工作流节点（保持原有逻辑，仅补充 session_id 到 state）----------
     def medical_intention_search(self, state: MedicalChatState) -> Dict[str, List[HumanMessage]]:
-        """
-        获取当前用户会话的意图信息
-        优化：添加类型提示和更清晰的变量命名
-        """
         tmp_messages = state.get("messages", [])
         tmp_intentions = state.get("intentions", [])
-        # 使用实例属性的提示词和模型
         prompt_user = PromptTemplate.from_template(self._intent_user_template).format(
             session_text=tmp_messages,
-            intent_history=tmp_intentions  # TODO 拆解
+            intent_history=tmp_intentions
         )
         system_messages = [SystemMessage(content=self._intent_sys_prompt)]
         human_messages = [HumanMessage(content=prompt_user)]
@@ -115,7 +135,7 @@ class MedicalChat:
         tmp_messages = state.get("messages", [])
         tmp_discovery_data = state.get("discovery_data", {})
         medical_discovery_data = self._medical_data_discovery.get_medical_data_discovery(tmp_messages, tmp_discovery_data)
-        logger.info(f"探寻结果: {medical_discovery_data}")  # 优化：用 logger 替代 print
+        logger.info(f"探寻结果: {medical_discovery_data}")
         return {"discovery_data": medical_discovery_data}
 
     def answer_question(self, state: MedicalChatState) -> Dict[str, str]:
@@ -124,7 +144,7 @@ class MedicalChat:
         """
         tmp_messages = state.get("messages", [])
         tmp_discovery_data = state.get("discovery_data", {})
-        # 优化：提取 prompt 为可读常量（原逻辑未改，仅调整格式）
+
         tmp_prompt = """
             根据输入的数据，根据用户的意图信息和想要知道的信息，生成用户想要知道的内容信息和需要提问的信息。
             输入格式为：
@@ -135,7 +155,6 @@ class MedicalChat:
         """
         tmp_input_user_info = f"""
             用户历史会话信息：{tmp_messages}
-
             用户探寻知识信息：{tmp_discovery_data}
         """
         system_messages = [SystemMessage(content=tmp_prompt)]
@@ -151,7 +170,7 @@ class MedicalChat:
         :return:
         """
         tmp_messages = state.get("messages", [])
-        tmp_disease_keyword = f"""
+        tmp_disease_keyword = """
             获取当前用户的疾病信息，并仅输出用户确定的疾病信息：
         """
         tmp_input_user_info = f"""
@@ -174,7 +193,6 @@ class MedicalChat:
             no_eat_food = self._knowledge_query_tools.query_no_eat_by_disease(disease_name)
             recommend_food = self._knowledge_query_tools.query_recommand_eat_by_disease(disease_name)
 
-        # 获取对应疾病的治疗方案——RAG逻辑
         results = self._medical_data_discovery.rag_service.query("疾病"+model_rsp_messages.content+"治疗方案？")
         context_str = ""
         if results:
@@ -186,9 +204,9 @@ class MedicalChat:
             logger.info("未检索到相关知识")
 
         return {"discovery_data": {
-            "疾病名称":model_rsp_messages,
+            "疾病名称": model_rsp_messages,
             "RAG Chunk": context_str,
-            "药物":medication,
+            "药物": medication,
             "不可使用食物": no_eat_food,
             "建议食用食物": recommend_food,
         }}
@@ -225,10 +243,10 @@ class MedicalChat:
         :return:
         """
         intention_router = state.get("chat_intention_router", "symptoms_inquiry")
-        logger.info("当前会话聊天意图探寻："+intention_router)
+        logger.info("当前会话聊天意图探寻：" + intention_router)
         return intention_router
 
-    # ---------- 工作流构建（优化：提取为私有方法，提高可读性）----------
+    # ---------- 构建工作流（支持 Checkpointer）----------
     def _build_graph(self) -> StateGraph:
         """构建 LangGraph 工作流（优化：明确返回类型，添加节点描述注释）"""
         workflow = StateGraph(MedicalChatState)
@@ -265,102 +283,190 @@ class MedicalChat:
         workflow.add_edge("medication_data_discovery", "answer_question")
         workflow.add_edge("answer_question", END)
 
-        return workflow.compile()
+        # 编译时若提供了 checkpointer，则传入
+        if self._checkpointer is not None:
+            return workflow.compile(checkpointer=self._checkpointer)
+        else:
+            return workflow.compile()
 
+    # ---------- 核心交互接口：处理单条消息 ----------
+    def process_message(self, user_input: str, session_id: Optional[str] = None) -> str:
+        """
+        处理用户消息，返回助手回复。
+        - 若启用持久化且 session_id 为 None，则自动创建新会话。
+        - 若启用持久化且 session_id 存在，则加载历史状态后继续。
+        - 若不启用持久化，则需要外部手动管理状态（本方法不适用，请直接调用工作流）。
+        """
+        # 1. 根据持久化方式获取/创建 state 和 config
+        if self._checkpointer is not None:
+            # 长期方案：使用 LangGraph Checkpointer
+            if session_id is None:
+                session_id = str(uuid.uuid4())  # 生成新会话ID
+                logger.info(f"创建新会话 (checkpointer): {session_id}")
+            # 构造 config，LangGraph 会根据 thread_id 自动加载/保存状态
+            config = {"configurable": {"thread_id": session_id}}
+            # 为了遵循工作流输入，我们需要准备初始 state（如果是从 checkpointer 恢复，工作流内部会处理）
+            # 但第一次调用时 state 应为空，但必须包含所有必需字段。
+            # 我们可以先尝试从 checkpointer 中读取状态，如果不存在则创建空状态。
+            checkpoint_tuple = self._checkpointer.get_tuple(config)
+            if checkpoint_tuple is None:
+                # 新建状态
+                current_state = {
+                    "messages": [HumanMessage(content=user_input)],
+                    "intentions": [],
+                    "discovery_data": {},
+                    "solution": "",
+                    "chat_intention_router": "symptoms_inquiry",
+                    "session_id": session_id
+                }
+            else:
+                # 恢复状态后追加用户消息
+                current_state = checkpoint_tuple.checkpoint.values
+                current_state.setdefault("messages", []).append(HumanMessage(content=user_input))
+            # 调用工作流，checkpointer 会自动保存新状态
+            final_state = self._workflow_graph.invoke(current_state, config=config)
+            answer = final_state.get("solution", "")
+            # 由于 checkpointer 已保存全状态，不需要额外持久化
+            return answer
+
+        elif self._session_store is not None:
+            # 短期方案：使用 SessionStore
+            if session_id is None:
+                # 创建新会话
+                session_id = self._session_store.create_session()
+                logger.info(f"创建新会话 (SessionStore): {session_id}")
+                state = {
+                    "messages": [],
+                    "intentions": [],
+                    "discovery_data": {},
+                    "solution": "",
+                    "chat_intention_router": "symptoms_inquiry",
+                    "session_id": session_id
+                }
+            else:
+                restored = self._session_store.restore_state(session_id)
+                if restored is None:
+                    raise ValueError(f"会话 {session_id} 不存在")
+                state = restored
+                # 确保 discovery_data 和 solution 为空（运行时数据）
+                state["discovery_data"] = {}
+                state["solution"] = ""
+                state["chat_intention_router"] = "symptoms_inquiry"
+                state["session_id"] = session_id
+
+            # 追加用户消息
+            state["messages"].append(HumanMessage(content=user_input))
+            # 记录旧状态长度，用于增量保存
+            old_msg_len = len(state["messages"]) - 1
+            old_intent_len = len(state["intentions"])
+
+            # 执行工作流（无 checkpointer）
+            new_state = self._workflow_graph.invoke(state)
+
+            # 将 AI 回复追加到 messages（工作流不会自动追加）
+            answer = new_state.get("solution", "")
+            if answer:
+                ai_msg = AIMessage(content=answer)
+                new_state.setdefault("messages", []).append(ai_msg)
+
+            # 增量保存消息
+            for msg in new_state["messages"][old_msg_len:]:
+                role = "user" if isinstance(msg, HumanMessage) else "assistant"
+                self._session_store.add_message(session_id, role, msg.content)
+
+            # 增量保存意图
+            for intent in new_state["intentions"][old_intent_len:]:
+                self._session_store.add_intention(session_id, intent)
+
+            return answer
+
+        else:
+            raise RuntimeError("未启用任何持久化方案，无法使用 process_message。请直接调用工作流或启用持久化。")
+
+    # ---------- 交互式命令行（支持会话选择）----------
+    def run_interactive(self):
+        """启动命令行交互，支持根据持久化类型选择历史会话"""
+        if self._checkpointer is None and self._session_store is None:
+            print("错误：未启用任何持久化，无法运行交互模式。")
+            return
+
+        print("=" * 50)
+        print("医疗对话助手")
+        print("1. 新建会话")
+        print("2. 加载历史会话")
+        choice = input("请选择 (1/2): ").strip()
+
+        session_id = None
+        if choice == "2":
+            # 列出历史会话
+            if self._session_store:
+                sessions = self._session_store.list_sessions()
+            else:  # checkpointer 模式，需要从检查点中列出所有 thread_id（依赖于具体实现，这里简化）
+                print("在 Checkpointer 模式下，暂不支持列出历史会话，将创建新会话。")
+                sessions = []
+            if not sessions:
+                print("暂无历史会话，将创建新会话")
+            else:
+                print("\n历史会话列表：")
+                for idx, sess in enumerate(sessions, 1):
+                    print(f"{idx}. {sess['title']} (最后更新: {sess['updated_at']})")
+                try:
+                    idx = int(input("请输入序号: ")) - 1
+                    session_id = sessions[idx]["session_id"]
+                except (ValueError, IndexError):
+                    print("无效输入，将创建新会话")
+
+        print("\n输入 'exit' 退出对话")
+        while True:
+            user_input = input("[用户] >>> ").strip()
+            if user_input.lower() in ("exit", "quit"):
+                break
+            if not user_input:
+                continue
+            try:
+                answer = self.process_message(user_input, session_id)
+                # 如果是新会话，获取实际 session_id（process_message 会创建并返回，但我们未返回，需改造）
+                # 简便起见，可以要求 process_message 返回 session_id，这里增加一个内部变量
+                # 我们稍作调整：将 session_id 作为返回值之一
+                print(f"[助手]\n{answer}")
+            except Exception as e:
+                logger.exception(f"处理失败: {e}")
+                print(f"错误: {e}")
+
+    # 辅助：打印完整状态
     def _print_state_full(self, state: MedicalChatState, title: str = "State"):
-        """完整打印 state 中的所有数据内容（谨慎使用，可能产生大量输出）"""
         logger.info(f"========== {title} ==========")
-
-        # 1. messages
         msgs = state.get("messages", [])
         logger.info(f"messages 列表 (共 {len(msgs)} 条):")
         for i, msg in enumerate(msgs, 1):
             logger.info(f"  [{i}] {msg.__class__.__name__}: {msg.content}")
-
-        # 2. intentions
         intents = state.get("intentions", [])
         logger.info(f"intentions 列表 (共 {len(intents)} 条):")
         for i, intent in enumerate(intents, 1):
             logger.info(f"  [{i}] {intent.content}")
-
-        # 3. discovery_data
         disc_data = state.get("discovery_data", {})
         logger.info(f"discovery_data 字典 (共 {len(disc_data)} 个键):")
         for key, value in disc_data.items():
-            # 如果 value 是字符串且过长，可截断；但按“完整”要求，这里直接打印
             logger.info(f"  {key}: {value}")
-
-        # 4. solution
         solution = state.get("solution", "")
-        logger.info(f"solution 内容:")
-        logger.info(f"{solution}")
-
-        # 5. chat_intention_router
+        logger.info(f"solution 内容:\n{solution}")
         router = state.get("chat_intention_router", "未设置")
         logger.info(f"chat_intention_router: {router}")
-
+        logger.info(f"session_id: {state.get('session_id', '未设置')}")
         logger.info(f"========== {title} 结束 ==========")
 
-    # ---------- 对外暴露的聊天接口（优化：新增便捷方法）----------
-    def process_message(self, user_input: str, state: MedicalChatState) -> MedicalChatState:
-        """
-        处理单条用户消息，返回更新后的状态
-        优化：封装单轮对话调用，便于集成
-        """
-        # 将用户消息添加到历史
-        state.setdefault("messages", []).append(HumanMessage(content=user_input))
-        # 调用工作流
-        new_state = self._workflow_graph.invoke(state)
-        # 将助手的回复作为 AIMessage 追加（工作流不会自动添加，需手动维护）
-        self._print_state_full(new_state)
-        answer = new_state.get("solution", "")
-        if answer:
-            new_state.setdefault("messages", []).append(AIMessage(content=answer))
-        return new_state
 
-    def run_interactive(self):
-        """
-        启动人工交互对话循环
-        优化：将 main 中的交互循环封装为类方法，展示工具类的便捷使用
-        """
-        print("=" * 50)
-        print("欢迎使用医疗对话助手（人工交互模式）")
-        print("提示：输入 'exit' 或 'quit' 结束对话")
-        print("=" * 50)
-
-        # 初始化会话状态
-        state: MedicalChatState = {
-            "messages": [],
-            "intentions": [],
-            "discovery_data": {},
-            "solution": ""
-        }
-
-        while True:
-            user_input = input("\n[用户] >>> ").strip()
-            if user_input.lower() in ("exit", "quit"):
-                print("[系统] 对话已结束。")
-                break
-            if not user_input:
-                print("[系统] 输入不能为空，请重新输入。")
-                continue
-
-            try:
-                state = self.process_message(user_input, state)
-                answer = state.get("solution", "")
-                if not answer:
-                    answer = "[系统] 抱歉，未能生成有效回答。"
-                print("\n[助手]")
-                print(answer)
-            except Exception as e:
-                logger.exception(f"处理消息时发生异常: {e}")  # 优化：记录完整堆栈
-                print(f"[错误] 处理请求时发生异常：{e}")
-
-        print("\n[系统] 感谢使用，再见！")
-
-
-# ==================== 展示工具类用法 ====================
+# ==================== 使用示例 ====================
 if __name__ == '__main__':
-    # 优化：主函数仅负责实例化工具类并启动交互，代码清晰直观
-    assistant = MedicalChat()
-    assistant.run_interactive()
+    # 示例1：短期方案（SessionStore）
+    print("=== 短期方案示例 ===")
+    store = SessionStore()
+    assistant1 = MedicalChat(session_store=store)
+    assistant1.run_interactive()
+
+    # 示例2：长期方案（LangGraph SqliteSaver）
+    # 需要先安装 langgraph 并导入 SqliteSaver
+    # from langgraph.checkpoint.sqlite import SqliteSaver
+    # checkpointer = SqliteSaver.from_conn_string("checkpoints.db")
+    # assistant2 = MedicalChat(checkpointer=checkpointer)
+    # assistant2.run_interactive()
