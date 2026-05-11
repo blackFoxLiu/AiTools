@@ -1,3 +1,7 @@
+"""
+医疗信息探寻查询图结构
+"""
+import json
 import logging
 from typing import Dict, Any, List, Optional, Annotated, TypedDict, Literal
 
@@ -30,6 +34,7 @@ class MedicalInquiryState(TypedDict):
     chief_complaint: str  # 主诉：喊着最主要痛苦/问题
     present_illness: PresentIllness
     associated_symptoms: List[str]
+    symptom_absent: List[str]
     existing_knowledge_supplement: List[str]  # 当信息不充足时，使用当前数据信息，查询可能存在的病症，提供参考
     missing_return_messages: str
     # 补充信息
@@ -111,10 +116,15 @@ class MedicalDataDiscovery:
         logger.info(f"  输入消息数: {len(state.get('messages', []))}")
         # ----------------
         messages = state["messages"]
-        tmp_chief_complaint = """
+        tmp_chief_complaint = f"""
             根据用户聊天信息获取其中的病人最大的病痛信息。应该表现出是症状，或者最大痛苦。只返回症状，必须精简。
             例如： 【输入：早上有些发烧和头疼。 输出：发烧，头疼】
+            
+            当前已经存在的症状：
+            {state["chief_complaint"]}
+            
         """
+
         model_chief_complaint = self.get_llm_agent(tmp_chief_complaint, None)
         model_rsp_message = model_chief_complaint.invoke({"messages": messages})
         chief = model_rsp_message["messages"][-1].content
@@ -131,7 +141,7 @@ class MedicalDataDiscovery:
         logger.info("[节点] get_present_illness - 开始提取现病史")
         # ----------------
         messages = state["messages"]
-        tmp_chief_complaint = """
+        tmp_chief_complaint = f"""
             你是一个专业的医疗信息提取助手。根据用户描述提取：
             - 病症开始时间 (onset_time)
             - 发作规律 (pattern)：持续/阵发/间歇性
@@ -142,13 +152,17 @@ class MedicalDataDiscovery:
             输入：
             今天早上有些咳嗽，曾经吃过一些感康
             输出：
-            {
+            {{
                 'onset_time': '今天早上',
                 'pattern': '阵发',   # 或空字符串，取决于模型判断
                 'treatments_received': ['感康']
-            }
+            }}
             】
+            
+            当前已经存在的现病史信息：
+            state["present_illness"]
         """
+
         agent = self.get_llm_agent(tmp_chief_complaint, [self.submit_illness_info])
         # 限制递归深度
         response = agent.invoke({"messages": messages}, config={"recursion_limit": 10})
@@ -170,42 +184,64 @@ class MedicalDataDiscovery:
 
     def get_concomitant_symptoms(self, state: MedicalInquiryState) -> Dict[str, Any]:
         """
-        获取并发症状
-        :return:
+        获取并发症状，包括存在的伴随症状和不存在的症状
+        :return: 包含 "associated_symptoms" 和 "symptom_absent" 的字典
         """
-        # ----- 日志 -----
         logger.info("[节点] get_concomitant_symptoms - 开始提取伴随症状")
-        # ----------------
-        messages = state["messages"]
-        tmp_prompt = """
-            根据提供的信息，提取数据中的主要病症之外的其他并发症（伴随症状），以 Python 列表形式输出，例如 ["浑身疼痛"]。如果没有其他症状，输出空列表 []。
-            示例：【
-            输入：早上发烧，浑身感觉疼痛
-            输出：["浑身疼痛"]
-            】
+        messages: List[str] = state["messages"]
+
+        tmp_prompt = f"""
+            根据提供的信息，提取数据中的主要病症之外的其他伴随症状（并发症），同时提取不存在的症状信息。
+            输出格式为严格的 JSON 对象，包含以下两个键：
+            - "associated_symptoms": 列表，存放实际存在的伴随症状（字符串）
+            - "symptom_absent": 列表，存放明确提及不存在的症状（如“没有咳嗽”可写为“咳嗽”或“无咳嗽”，建议使用症状名）
+            示例：
+            输入：早上发烧，浑身感觉疼痛。但没有咳嗽
+            输出：{{
+                "associated_symptoms": ["浑身疼痛", "发烧"], "symptom_absent": ["咳嗽"]
+            }}
+            注意：只输出 JSON，不要有其他解释文字。
+            
+            当前已经存在的并发症信息：
+            {state["associated_symptoms"]}
+            
+            当前不存在的症状信息：
+            {state["symptom_absent"]}
+            
         """
+
         agent = self.get_llm_agent(tmp_prompt, None)
         model_rsp_message = agent.invoke({"messages": messages})
         content = model_rsp_message["messages"][-1].content.strip()
 
-        # 将模型输出解析为列表
+        # 默认空结构
+        result = {
+            "associated_symptoms": [],
+            "symptom_absent": []
+        }
+
+        # 解析 JSON
         try:
-            symptoms_list = eval(content) if content.startswith('[') else []
-            if not isinstance(symptoms_list, list):
-                symptoms_list = []
-        except:
-            symptoms_list = []
+            # 尝试提取 JSON 部分（防止模型输出额外文字）
+            import re
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                parsed = json.loads(json_str)  # 使用 json.loads 更安全
+                if isinstance(parsed, dict):
+                    result["associated_symptoms"] = parsed.get("associated_symptoms", [])
+                    result["symptom_absent"] = parsed.get("symptom_absent", [])
+                    # 确保字段为列表
+                    if not isinstance(result["associated_symptoms"], list):
+                        result["associated_symptoms"] = []
+                    if not isinstance(result["symptom_absent"], list):
+                        result["symptom_absent"] = []
+        except Exception as e:
+            logger.warning(f"  解析伴随症状 JSON 失败: {e}, 原始内容: {content}")
 
-        logger.info(f"  提取的伴随症状: {symptoms_list}")
-        return {"associated_symptoms": symptoms_list}
-
-    class RAGQueryInput(BaseModel):
-        """用于 RAG 知识库查询的输入参数"""
-        chief_complaint: str = Field(description="主诉症状，如 '发烧,头痛'")
-        onset_time: Optional[str] = Field(default="", description="病症开始时间")
-        pattern: Optional[str] = Field(default="", description="发作规律：持续/阵发/间歇性")
-        treatments_received: Optional[List[str]] = Field(default=[], description="接受过的治疗或药物")
-        associated_symptoms: Optional[List[str]] = Field(default=[], description="伴随症状列表")
+        logger.info(f"  提取的伴随症状: {result['associated_symptoms']}")
+        logger.info(f"  不存在的症状: {result['symptom_absent']}")
+        return result
 
     # ===== 新增节点 1：信息充分性判断（意图识别）=====
     def classify_sufficiency(self, state: MedicalInquiryState) -> Dict[str, Any]:
@@ -217,6 +253,7 @@ class MedicalDataDiscovery:
         chief = state.get("chief_complaint", "")
         present = state.get("present_illness", {})
         associated = state.get("associated_symptoms", [])
+        symptom_absent = state.get("symptom_absent", [])
         existing_knowledge_sup = state.get("existing_knowledge_supplement", [])
 
         logger.info(f"  主诉: {chief}")
@@ -231,7 +268,7 @@ class MedicalDataDiscovery:
 
 主诉：{chief}
 现病史：发病时间 {present.get('onset_time', '未知')}，发作规律 {present.get('pattern', '未知')}，已接受治疗/药物 {', '.join(present.get('treatments_received', []))}
-伴随症状：{', '.join(associated) if associated else '无'}。
+伴随症状：{', '.join(associated) if associated else '无'}，不存在症状：{', '.join(symptom_absent) if symptom_absent else '无'}。
 
 当前用户症状为：{messages_text}
 
@@ -264,6 +301,7 @@ class MedicalDataDiscovery:
         chief = state.get("chief_complaint", "")
         present_illness = state.get("present_illness", {})
         associated = state.get("associated_symptoms", [])
+        symptom_absent = state.get("symptom_absent", [])
 
         query_parts = [f"主要症状：{chief}"]
 
@@ -275,6 +313,8 @@ class MedicalDataDiscovery:
             query_parts.append(f"治疗/药物：{', '.join(present_illness['treatments_received'])}")
         if associated:
             query_parts.append(f"伴随症状：{', '.join(associated)}")
+        if symptom_absent:
+            query_parts.append(f"不存在症状：{', '.join(symptom_absent)}")
 
         query_str = "，".join(query_parts)
         logger.info("医疗信息充分，RAG检索问题："+query_str)
@@ -301,6 +341,7 @@ class MedicalDataDiscovery:
         chief = state.get("chief_complaint", "")
         present = state.get("present_illness", {})
         associated = state.get("associated_symptoms", [])
+        symptom_absent = state.get("symptom_absent", [])
         rag_ctx = state.get("rag_context", "")
         logger.info(f"  主诉: {chief}")
         logger.info(f"  现病史: {present}")
@@ -311,7 +352,7 @@ class MedicalDataDiscovery:
 
     主诉：{chief}
     现病史：发病时间 {present.get('onset_time', '未知')}，发作规律 {present.get('pattern', '未知')}，已用药物/治疗 {', '.join(present.get('treatments_received', []))}
-    伴随症状：{', '.join(associated) if associated else '无'}
+    伴随症状：{', '.join(associated) if associated else '无'}，不存在症状：{', '.join(symptom_absent) if symptom_absent else '无'}。
 
     医学知识库参考：
     {rag_ctx}
@@ -376,7 +417,7 @@ class MedicalDataDiscovery:
         content = model_rsp_message.content.strip()
 
         logger.info(f"生成的问题:\n{content}")
-        return {"missing_return_messages": content}
+        return {"solution": content}
 
     # ===== 优化：重新判断信息充分性（复用 classify_sufficiency）=====
     def recheck_sufficiency(self, state: MedicalInquiryState) -> Dict[str, Any]:
@@ -402,6 +443,10 @@ class MedicalDataDiscovery:
         logger.info(f"\n[路由] recheck_sufficiency → {choice}")
         return choice
 
+    def rag_query(self, query, top_k=3):
+        """ 封装一个RAG知识查询模块 """
+        return self.rag_service.query(query, top_k=top_k)  # 返回列表
+
     def extract_missing_info_node(self, state: MedicalInquiryState) -> Dict[str, Any]:
         """
         根据路由判断当前信息是否充分
@@ -426,7 +471,7 @@ class MedicalDataDiscovery:
 
         query = model_rsp_message["messages"][-1].content
 
-        rag_query_result = self.rag_service.query(query, top_k=3)  # 返回列表
+        rag_query_result = self.rag_query(query, top_k=3)
 
         summary_disease_list = list()
         for query_info in rag_query_result:
@@ -444,7 +489,7 @@ class MedicalDataDiscovery:
             model_rsp_message = self.ollama_model.invoke([SystemMessage(content=tmp_disease_keyword_prompt)])
             disease_name = model_rsp_message.content.strip()
             # 知识图谱查询的数据
-            knowledge_query_data = self.knowledge_query_tools.query(disease_name)
+            knowledge_query_data = self.knowledge_query_tools.query_disease(disease_name)
 
             tmp_summary_disease_info = f"""
                 根据提供的数据对信息进行整理。仅根据提供的数据进行整理和分析，禁止使用未提到的数据进行输出，内容应该尽量精简。
@@ -524,32 +569,32 @@ class MedicalDataDiscovery:
         return graph_builder.compile()
 
 
-def get_medical_data_discovery(messages:BaseMessage):
-    graph_client = MedicalDataDiscovery()
-    agent = graph_client.get_graph()
-    # 修改：提供完整的初始状态，避免 KeyError
-    initial_state = {
-        "messages": messages,
-        "iteration_count": 0,
-        "chief_complaint": "",
-        "present_illness": {},
-        "associated_symptoms": [],
-        "existing_knowledge_supplement": [],
-        "is_sufficient": False,
-        "missing_info": [],
-        "solution": "",
-        "rag_context": "",
-        "need_more_info": False
-    }
-    return agent.invoke(initial_state)
-
+    def get_medical_data_discovery(self, messages:BaseMessage, discovery_data:dict[str, object]):
+        agent = self.get_graph()
+        # 修改：提供完整的初始状态，避免 KeyError
+        initial_state = {
+            "messages": messages,
+            "iteration_count": 0,
+            "chief_complaint": discovery_data.get("chief_complaint", ""),
+            "present_illness": discovery_data.get("present_illness", {}),
+            "associated_symptoms": discovery_data.get("associated_symptoms", []),
+            "symptom_absent": discovery_data.get("symptom_absent", []),
+            "existing_knowledge_supplement": discovery_data.get("existing_knowledge_supplement", []),
+            "is_sufficient": False,
+            "missing_info": [],
+            "solution": "",
+            "rag_context": "",
+            "need_more_info": False
+        }
+        return agent.invoke(initial_state)
 
 
 # 测试代码
 if __name__ == '__main__':
-    messages = [HumanMessage(content="今天早上头疼，有些流鼻涕")]
+    messages = [HumanMessage(content="今天早上头疼，有些流鼻涕。无咳嗽")]
     logger.info("=== 开始测试 ===")
-    result = get_medical_data_discovery(messages)
+    graph_client = MedicalDataDiscovery()
+    result = graph_client.get_medical_data_discovery(messages)
 
     print("\n=== 最终结果（完整状态） ===")
     for key, value in result.items():

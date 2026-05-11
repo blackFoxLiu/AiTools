@@ -319,7 +319,7 @@ if __name__ == '__main__':
     # print(service.upload_by_directory(r"C:\Users\13187\Desktop\output", extensions=[".txt", ".md", ".jsonl"]))
 
     # 查询示例（自动启用精排重排序）
-    results = service.query("持续性头痛可能是什么疾病？", top_k=3)
+    results = service.query("结痂、呼吸困难、舌口及咽部烧灼感、疤痕形成、出血倾向、发音障碍", top_k=3)
     print("\n精排后的查询结果：")
     for item in results:
         print(f"ID: {item['id']}")

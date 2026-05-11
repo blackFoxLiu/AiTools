@@ -82,7 +82,7 @@ class Neo4jQueryTools:
         finally:
             driver.close()
 
-    def query(self, query_keyword: str, as_json: bool = False):
+    def query_disease(self, query_keyword: str, as_json: bool = False):
         cypher = f"""
                 MATCH (n:Disease)-[r:has_symptom]->(s:Symptom)
                 WHERE n.name CONTAINS "{query_keyword}"
@@ -90,20 +90,55 @@ class Neo4jQueryTools:
                 """
         return self._query(cypher, as_json=as_json)
 
+    def query_medication_by_disease(self, query_keyword: str, as_json: bool = False):
+        cypher = f"""
+                MATCH (n:Disease)-[r:recommand_drug]->(d:Drug)
+                WHERE n.name CONTAINS "{query_keyword}"
+                RETURN d.name AS 药物名称
+                """
+        return self._query(cypher, as_json=as_json)
+
+    def query_no_eat_by_disease(self, query_keyword: str, as_json: bool = False):
+        cypher = f"""
+                MATCH (n:Disease)-[r:recommand_drug]->(d:Drug)
+                WHERE n.name CONTAINS "{query_keyword}"
+                RETURN d.name AS 禁止食用食物
+                """
+        return self._query(cypher, as_json=as_json)
+
+    def query_recommand_eat_by_disease(self, query_keyword: str, as_json: bool = False):
+        cypher = f"""
+                MATCH (n:Disease)-[r:recommand_eat]->(d:Food)
+                WHERE n.name CONTAINS "{query_keyword}"
+                RETURN d.name AS 可食用食物
+                """
+        return self._query(cypher, as_json=as_json)
+
+    def check_disease_is_exists(self, query_keyword: str, as_json: bool = False):
+        """
+        查询当前疾病是否存在
+        :param query_keyword:
+        :param as_json:
+        :return:
+        """
+        cypher = f"""
+                MATCH(n: Disease) WHERE
+                n.name contains "{query_keyword}"
+                return count(n) as total
+                """
+        rst_json = self._query(cypher, as_json=as_json)
+        return rst_json[0]["total"]
+
+
+
 # 使用示例
 if __name__ == '__main__':
     client = Neo4jQueryTools()
 
     # 查询1：返回 JSON 字符串
-    json_result = client.query(
-        "头风",
-        as_json=True
-    )
+    json_result = client.check_disease_is_exists("喘息样支气管炎", False)
     print(json_result)
 
     # 查询2：返回字典列表
-    dict_result = client.query(
-        "头风",
-        as_json=False
-    )
+    dict_result = client.query_disease("头风", as_json=False)
     print(dict_result)
