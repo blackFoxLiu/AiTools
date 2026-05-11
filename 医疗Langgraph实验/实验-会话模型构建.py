@@ -115,6 +115,7 @@ class MedicalChat:
 
     # ---------- 工作流节点（保持原有逻辑，仅补充 session_id 到 state）----------
     def medical_intention_search(self, state: MedicalChatState) -> Dict[str, List[HumanMessage]]:
+        """获取当前用户会话的意图信息"""
         tmp_messages = state.get("messages", [])
         tmp_intentions = state.get("intentions", [])
         prompt_user = PromptTemplate.from_template(self._intent_user_template).format(
@@ -316,7 +317,7 @@ class MedicalChat:
                     "intentions": [],
                     "discovery_data": {},
                     "solution": "",
-                    "chat_intention_router": "symptoms_inquiry",
+                    "chat_intention_router": "",  # 初始为空，符合业务需求
                     "session_id": session_id
                 }
             else:
@@ -335,12 +336,13 @@ class MedicalChat:
                 # 创建新会话
                 session_id = self._session_store.create_session()
                 logger.info(f"创建新会话 (SessionStore): {session_id}")
+                # 初始状态下 chat_intention_router 必须为空字符串（而非默认路由）
                 state = {
                     "messages": [],
                     "intentions": [],
                     "discovery_data": {},
                     "solution": "",
-                    "chat_intention_router": "symptoms_inquiry",
+                    "chat_intention_router": "",  # 新增注释：初始为空，第一次对话时由意图识别节点决定路由
                     "session_id": session_id
                 }
             else:
@@ -348,16 +350,12 @@ class MedicalChat:
                 if restored is None:
                     raise ValueError(f"会话 {session_id} 不存在")
                 state = restored
-                # 确保 discovery_data 和 solution 为空（运行时数据）
-                state["discovery_data"] = {}
                 state["solution"] = ""
-                state["chat_intention_router"] = "symptoms_inquiry"
-                state["session_id"] = session_id
 
             # 追加用户消息
             state["messages"].append(HumanMessage(content=user_input))
             # 记录旧状态长度，用于增量保存
-            old_msg_len = len(state["messages"]) - 1
+            old_msg_len = len(state["messages"]) - 1   # 刚添加的用户消息
             old_intent_len = len(state["intentions"])
 
             # 执行工作流（无 checkpointer）
@@ -369,14 +367,27 @@ class MedicalChat:
                 ai_msg = AIMessage(content=answer)
                 new_state.setdefault("messages", []).append(ai_msg)
 
-            # 增量保存消息
+            # 增量保存消息（原有逻辑，无需改动）
             for msg in new_state["messages"][old_msg_len:]:
                 role = "user" if isinstance(msg, HumanMessage) else "assistant"
                 self._session_store.add_message(session_id, role, msg.content)
 
-            # 增量保存意图
-            for intent in new_state["intentions"][old_intent_len:]:
-                self._session_store.add_intention(session_id, intent)
+            # ========== 关键修改：保存意图轮次（一对一存储） ==========
+            # 【新增】使用 add_intention_round 将本轮意图、发现数据、路由一并存储
+            if len(new_state["intentions"]) > old_intent_len:
+                # 获取本轮新增的意图（最后一个）
+                new_intent = new_state["intentions"][-1]
+                # 获取本轮对应的发现数据（工作流执行后的最新值）
+                current_discovery = new_state.get("discovery_data", {})
+                # 获取本轮对应的路由选择（可能为空或已有值）
+                current_router = new_state.get("chat_intention_router", "")
+                self._session_store.add_intention_round(
+                    session_id,
+                    intention_message=new_intent,
+                    discovery_data=current_discovery,
+                    router_value=current_router
+                )
+                logger.info(f"已保存本轮意图轮次: router={current_router}")
 
             return answer
 
@@ -425,9 +436,6 @@ class MedicalChat:
                 continue
             try:
                 answer = self.process_message(user_input, session_id)
-                # 如果是新会话，获取实际 session_id（process_message 会创建并返回，但我们未返回，需改造）
-                # 简便起见，可以要求 process_message 返回 session_id，这里增加一个内部变量
-                # 我们稍作调整：将 session_id 作为返回值之一
                 print(f"[助手]\n{answer}")
             except Exception as e:
                 logger.exception(f"处理失败: {e}")
@@ -435,6 +443,7 @@ class MedicalChat:
 
     # 辅助：打印完整状态
     def _print_state_full(self, state: MedicalChatState, title: str = "State"):
+        """完整打印 state 中的所有数据内容（谨慎使用，可能产生大量输出）"""
         logger.info(f"========== {title} ==========")
         msgs = state.get("messages", [])
         logger.info(f"messages 列表 (共 {len(msgs)} 条):")
