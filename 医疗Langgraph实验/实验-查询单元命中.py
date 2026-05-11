@@ -70,6 +70,7 @@ def primitive_concept_node(state: SearchClassState):
     ])
     return {"primitive_concept_symptom": model_rsp_messages}
 
+
 def disease_course_node(state: SearchClassState):
     """
         病症提取——按病程特点（时间轴）：判断急性、亚急性、慢性，这对病因推断很有价值。
@@ -157,48 +158,22 @@ workflow.add_edge("symptom_nature_node", END)
 chain = workflow.compile()
 
 user_input = {
-  "chief_complaint": "鼻塞，打喷嚏，流清涕",
-  "present_illness": {
-    "onset_time": "昨日傍晚",
-    "pattern": "间歇性",
-    "treatments_received": []
-  },
-  "associated_symptoms": [
-    "鼻塞",
-    "清水样鼻涕",
-    "打喷嚏",
-    "声音嘶哑",
-    "头部昏沉",
-    "轻度乏力",
-    "睡眠质量差",
-    "被迫张口呼吸",
-    "精神一般",
-    "食欲稍减"
-  ],
-  "symptom_absent": [
-    "发热",
-    "肌肉酸痛",
-    "畏寒",
-    "咳嗽咳痰"
-  ],
-  "missing_info": [
-    "是否有明确的过敏原接触史（如花粉、尘螨、宠物皮屑等）",
-    "是否伴有鼻痒（已提及但需确认是否为持续性）",
-    "是否使用过抗组胺药或其他药物（现病史中提到'已接受治疗/药物'但未明确药物种类）"
-  ],
-  "solution": {
-    "possible_diagnoses": [
-      "急性上呼吸道感染（病毒性）",
-      "过敏性鼻炎",
-      "急性鼻咽炎"
-    ],
-    "suggested_actions": {
-      "self_monitoring": "观察症状变化，记录鼻塞、打喷嚏频率及睡眠质量改善情况。若3天内症状无缓解或出现发热、咳嗽等新症状，需及时就医。",
-      "symptom_management": "可使用生理盐水鼻腔冲洗保持鼻腔湿润，配合使用抗组胺药物（如氯雷他定）缓解鼻塞和流涕，声音嘶哑可含服润喉糖或使用溶菌酶含片。",
-      "environment_adjustment": "保持室内空气湿润（40-60%湿度），避免接触烟酒及刺激性气体，睡前抬高枕头减轻被迫张口呼吸。"
+    "chief_complaint": "咳嗽，头疼",
+    "present_illness": {
+        "onset_time": "今天早上",
+        "pattern": "",
+        "treatments_received": []
     },
-    "disclaimer": "以上信息仅供参考，不能替代专业医疗建议。具体诊断和治疗方案需由执业医师根据面诊情况制定。若症状持续加重或出现新症状，请立即就医。"
-  }
+    "associated_symptoms": [
+        "咳嗽",
+        "头疼"
+    ],
+    "symptom_absent": [],
+    "existing_knowledge_supplement": [
+        "{\n  \"疾病名称\": \"咳嗽\",\n  \"疾病存在的症状\": \"变应性咳嗽，慢性咳嗽，小儿剧烈咳嗽，发作性咳嗽，气道高反应性，湿疹，持续性咳嗽，情绪性哮喘，发绀，昏睡，意识丧失，面色苍白，抽搐，以头昏为主的眩晕，喘息，夜间咳嗽，咳出黄色痰液，咽痛，苔黄腻，遗尿，尿频，尿流变细或中断，尿急，尿失禁，吐白沫痰，痰湿体质，哮鸣音，流黄鼻涕，声音嘶哑，‘咳嗽水’上瘾，鼻塞，胸闷，口苦，呼吸困难，痉挛性咳嗽，咳铁锈色痰，咳痰，气喘\",\n  \"疾病引起原因\": \"呼吸道疾病\",\n  \"疾病确定概率\": \"60%\"\n}",
+        "{\n  \"疾病名称\": \"慢性咳嗽\",\n  \"疾病存在的症状\": \"哮鸣音, 咽痛\",\n  \"疾病引起原因\": \"1. 鼻部疾病（如鼻炎、鼻窦炎）导致鼻后滴流刺激咳嗽感受器；2. 胃食管反流性咳嗽（胃酸反流刺激气道）\",\n  \"疾病确定概率\": \"60%\"\n}",
+        "{\n  \"疾病名称\": \"痰浊头痛\",\n  \"疾病存在的症状\": \"胸闷、清晨或上午头痛、头昏\",\n  \"疾病引起原因\": \"中医病因：饮食不节、嗜酒太过或过食辛辣肥甘导致脾失健运，痰浊中阻，清阳不升，浊阴上蒙。西医病因：可能与血管性头痛、紧张性头痛、颅内疾病等有关。\",\n  \"疾病确定概率\": \"60%\"\n}"
+    ]
 }
 
 user_input_str = json.dumps(user_input, ensure_ascii=False, indent=2)
@@ -211,6 +186,3 @@ print(answer.get("human_body_system", ""))
 print(answer.get("manifestation_characteristics", ""))
 print(answer.get("symptom_nature", ""))
 print(answer.get("primitive_concept_symptom", ""))
-
-# Invoke
-print("Initial joke:")
