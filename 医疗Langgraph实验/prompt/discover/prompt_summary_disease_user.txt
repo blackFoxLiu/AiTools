@@ -1,0 +1,5 @@
+知识信息1：
+{knowledge_query_data}
+
+知识信息2：
+{rag_text}

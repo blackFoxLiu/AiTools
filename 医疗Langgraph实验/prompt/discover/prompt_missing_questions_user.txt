@@ -1,0 +1,8 @@
+用户输入的询问数据：
+{messages_text}
+
+模型分析认为对疾病推理的缺失询问信息：
+{missing_info}
+
+提供的参考数据，利用该数据对用户输入的问询数据进行分析：
+{existing_knowledge_supplement}
