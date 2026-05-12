@@ -10,8 +10,10 @@ from langchain_ollama import ChatOllama
 from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END, add_messages
 
+
+
 # 假设 common_utils 中提供 read_prompt 函数
-from common_utils import read_prompt
+from common_utils import read_prompt,safe_json_parse
 
 from build_dynamic_knowledge import KnowledgeGraphUpdateService
 
@@ -131,7 +133,7 @@ class DiseaseAnalysisService:
             SystemMessage(content=sys_prompt),
             HumanMessage(content=user_prompt)
         ])
-        return json.loads(response.content)
+        return safe_json_parse(response.content)
 
     def _run_primitive_concept_node(self, input_text: str):
         sys_prompt = read_prompt(self.prompt_paths["primitive_concept_sys"])
@@ -142,7 +144,7 @@ class DiseaseAnalysisService:
             SystemMessage(content=sys_prompt),
             HumanMessage(content=user_prompt)
         ])
-        return json.loads(response.content)
+        return safe_json_parse(response.content)
 
     def _run_disease_course_node(self, input_text: str) -> Dict[str, Any]:
         sys_prompt = read_prompt(self.prompt_paths["disease_course_sys"])
@@ -153,7 +155,7 @@ class DiseaseAnalysisService:
             SystemMessage(content=sys_prompt),
             HumanMessage(content=user_prompt)
         ])
-        return json.loads(response.content)
+        return safe_json_parse(response.content)
 
     def _run_human_body_system_node(self, input_text: str) -> Dict[str, Any]:
         sys_prompt = read_prompt(self.prompt_paths["human_body_system_sys"])
@@ -164,7 +166,7 @@ class DiseaseAnalysisService:
             SystemMessage(content=sys_prompt),
             HumanMessage(content=user_prompt)
         ])
-        return json.loads(response.content)
+        return safe_json_parse(response.content)
 
     def _run_manifestation_characteristics_node(self, input_text: str) -> Dict[str, Any]:
         sys_prompt = read_prompt(self.prompt_paths["manifestation_characteristics_sys"])
@@ -175,7 +177,7 @@ class DiseaseAnalysisService:
             SystemMessage(content=sys_prompt),
             HumanMessage(content=user_prompt)
         ])
-        return json.loads(response.content)
+        return safe_json_parse(response.content)
 
     def _run_symptom_nature_node(self, input_text: str) -> Dict[str, Any]:
         sys_prompt = read_prompt(self.prompt_paths["symptom_nature_sys"])
@@ -186,7 +188,7 @@ class DiseaseAnalysisService:
             SystemMessage(content=sys_prompt),
             HumanMessage(content=user_prompt)
         ])
-        return json.loads(response.content)
+        return safe_json_parse(response.content)
 
     # ---------- 辅助方法 ----------
     @staticmethod
@@ -195,7 +197,7 @@ class DiseaseAnalysisService:
         从输入数据中生成症状描述文本
         """
         if isinstance(data, str):
-            json_data = json.loads(data)
+            json_data = safe_json_parse(data)
         else:
             json_data = data
 

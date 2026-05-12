@@ -141,7 +141,7 @@ if __name__ == '__main__':
     print(json_result)
 
     # 查询2：返回字典列表
-    dict_result = client.query_disease("头风", as_json=False)
+    dict_result = client.query_disease("百日咳", as_json=False)
     print(dict_result)
 
     json_result = client.use_cypher("MATCH (n:Disease) WHERE n.name = '二硫化碳中毒' RETURN n LIMIT 25")

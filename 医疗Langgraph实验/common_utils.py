@@ -2,23 +2,37 @@
 import json
 import logging
 import re
+from functools import lru_cache
 from typing import Optional, Dict
 
+from langchain_ollama import ChatOllama
+
+
 # 获取日志
-def get_logger():
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# ==================== 常量配置 ====================
+OLLAMA_CONFIG = {
+    "model": "qwen3:8b",
+    "base_url": "http://127.0.0.1:11434",
+    "temperature": 0.0
+}
+
+# ==================== 模型获取（缓存）====================
+@lru_cache(maxsize=1)
+def get_base_chat_model() -> ChatOllama:
     """
-        获取logger
-    :return:
+    获取一个 Ollama 聊天模型实例（单例模式）
+    优化：使用 lru_cache 确保全局只有一个实例，节省资源
     """
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    return logging.getLogger(__name__)
+    return ChatOllama(
+        model=OLLAMA_CONFIG["model"],
+        base_url=OLLAMA_CONFIG["base_url"],
+        temperature=OLLAMA_CONFIG["temperature"]
+    )
 
-
-# 日志配置（只添加一次StreamHandler）
-logger = get_logger()
-
-
-# 读取提示词文件
+@lru_cache(maxsize=5)
 def read_prompt(file_path: str) -> str:
     """读取提示词文件"""
     try:
@@ -30,22 +44,20 @@ def read_prompt(file_path: str) -> str:
         logger.error(f"读取提示词文件失败：{e}")
     return ""
 
-
 def safe_json_parse(json_str: str) -> Optional[Dict]:
     """安全解析JSON字符串，处理可能的格式问题"""
-    # 去除可能的 markdown 代码块标记
     cleaned = clean_value(json_str)
     try:
-        return json.loads(cleaned), True
+        return json.loads(cleaned)
     except json.JSONDecodeError:
         # 尝试修复常见错误：将单引号替换为双引号
         try:
             fixed = cleaned.replace("'", '"')
-            return json.loads(fixed), True
+            return json.loads(fixed)
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析失败：{e}\n内容：{cleaned[:200]}")
             logger.error(f"JSON 字符串：{cleaned}")
-            return {}, False
+            return {}
 
 
 def clean_value(value):

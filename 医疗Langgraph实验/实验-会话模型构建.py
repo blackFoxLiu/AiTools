@@ -1,17 +1,14 @@
-import json
-import logging
 import operator
 import uuid
-from functools import lru_cache
-from typing import List, Dict, Any, Optional, Annotated
+from typing import List, Any, Annotated
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.prompts import PromptTemplate
-from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END, add_messages
 from typing_extensions import TypedDict
 
 from MedicalDataDiscovery import MedicalDataDiscovery
+from common_utils import *
 from knowledge_graph_tools import Neo4jQueryTools
 # 导入存储模块
 from session_store import SessionStore
@@ -20,16 +17,15 @@ from session_store import SessionStore
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ==================== 常量配置 ====================
-OLLAMA_CONFIG = {
-    "model": "qwen3:8b",
-    "base_url": "http://127.0.0.1:11434",
-    "temperature": 0.0
-}
-
 PROMPT_PATHS = {
     "intent_sys": "./prompt/prompt_medical_intent_info_sys.txt",
-    "intent_user": "./prompt/prompt_medical_intent_info_user.txt"
+    "intent_user": "./prompt/prompt_medical_intent_info_user.txt",
+    "chat_intent_choice_sys": "./prompt/chat/prompt_chat_intent_choice_sys.txt",
+    "chat_intent_choice_user": "./prompt/chat/prompt_chat_intent_choice_user.txt",
+    "medication_keyword_sys": "./prompt/chat/prompt_medication_keyword_sys.txt",
+    "medication_keyword_user": "./prompt/chat/prompt_medication_keyword_user.txt",
+    "medical_chat_answer_sys": "./prompt/chat/prompt_medical_chat_answer_sys.txt",
+    "medical_chat_answer_user": "./prompt/chat/prompt_medical_chat_answer_user.txt",
 }
 
 # ==================== Graph state（使用纯字典存储意图）====================
@@ -41,35 +37,6 @@ class MedicalChatState(TypedDict):
     solution: str
     chat_intention_router: str
     session_id: str
-
-# ==================== 模型获取（缓存）====================
-@lru_cache(maxsize=1)
-def get_base_chat_model() -> ChatOllama:
-    """
-    获取一个 Ollama 聊天模型实例（单例模式）
-    优化：使用 lru_cache 确保全局只有一个实例，节省资源
-    """
-    return ChatOllama(
-        model=OLLAMA_CONFIG["model"],
-        base_url=OLLAMA_CONFIG["base_url"],
-        temperature=OLLAMA_CONFIG["temperature"]
-    )
-
-# ==================== 提示词文件读取（缓存）====================
-@lru_cache(maxsize=5)
-def read_prompt(file_path: str) -> str:
-    """
-    读取提示词文件，支持缓存
-    优化：文件内容缓存后无需重复 I/O
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        logger.error(f"错误：提示词文件不存在 - {file_path}")
-    except Exception as e:
-        logger.error(f"读取提示词文件失败：{e}")
-    return ""
 
 # ==================== 医疗对话助手工具类 ====================
 class MedicalChat:
@@ -106,11 +73,11 @@ class MedicalChat:
         self._workflow_graph = self._build_graph()
 
     # ---------- 工作流节点 ----------
-    def medical_intention_search(self, state: MedicalChatState) -> Dict[str, List[Dict[str, Any]]]:
+    def medical_intention_search_node(self, state: MedicalChatState) -> Dict[str, List[Dict[str, Any]]]:
         """
         获取当前用户会话的意图信息，返回字典格式的意图
         """
-        logger.info("medical_intention_search-获取当前用户会话的意图信息")
+        logger.info("medical_intention_search_node-获取当前用户会话的意图信息")
         tmp_messages = state.get("messages", [])
         tmp_intentions = state.get("intentions", [])   # 现在是字典列表
 
@@ -148,9 +115,9 @@ class MedicalChat:
             logger.error("intentions-JSONDecodeError，进行降级处理")
         return {"intentions": [intention_dict]}
 
-    def medical_data_discovery(self, state: MedicalChatState) -> Dict[str, Dict[str, Any]]:
+    def medical_data_discovery_node(self, state: MedicalChatState) -> Dict[str, Dict[str, Any]]:
         """进行医疗信息探寻"""
-        logger.info("medical_data_discovery-进行医疗信息探寻")
+        logger.info("medical_data_discovery_node-进行医疗信息探寻")
         tmp_messages = state.get("messages", [])
         tmp_discovery_data = state.get("discovery_data", {})
         medical_discovery_data = self._medical_data_discovery.get_medical_data_discovery(tmp_messages, tmp_discovery_data)
@@ -159,9 +126,9 @@ class MedicalChat:
         logger.info(f"探寻结果: {rst_discovery_data}")
         return {"discovery_data": rst_discovery_data}
 
-    def answer_question(self, state: MedicalChatState) -> Dict[str, str]:
-        """根据探寻信息和意图信息生成回答内容"""
-        logger.info("answer_question-回答问题")
+    def answer_question_node(self, state: MedicalChatState) -> Dict[str, str]:
+        """ 根据探寻信息和意图信息生成回答内容 """
+        logger.info("answer_question_node-回答问题")
         tmp_messages = state.get("messages", [])
         tmp_discovery_data = state.get("discovery_data", {})
         tmp_intentions = state.get("intentions", [])
@@ -169,37 +136,30 @@ class MedicalChat:
         latest_intention = tmp_intentions[-1] if tmp_intentions else {}
         main_intention = latest_intention.get("main_intention", "")
 
-        tmp_prompt = """
-            根据输入的数据，根据用户的意图信息和想要知道的信息，生成用户想要知道的内容信息和需要提问的信息。
-            输入格式为：
-            提问回答信息：
-            str——分点进行展示
-            询问信息：
-            str——根据意图信息和实际内容信息，判断需要用户回答的信息。
-        """
-        tmp_input_user_info = f"""
-            用户历史会话信息：{tmp_messages}
-            用户探寻知识信息：{tmp_discovery_data}
-            当前意图：{main_intention}
-        """
-        system_messages = [SystemMessage(content=tmp_prompt)]
-        user_messages = [HumanMessage(content=tmp_input_user_info)]
+        prompt_medical_chat_answer_sys = read_prompt(PROMPT_PATHS["medical_chat_answer_sys"])
+        prompt_medical_chat_answer_user = PromptTemplate.from_template(PROMPT_PATHS["medical_chat_answer_user"]).format(
+            input_messages = tmp_messages,
+            input_discovery_data = tmp_discovery_data,
+            input_intention = main_intention
+        )
+
+        system_messages = [SystemMessage(content=prompt_medical_chat_answer_sys)]
+        user_messages = [HumanMessage(content=prompt_medical_chat_answer_user)]
+
         model_rsp = self._model.invoke(system_messages + user_messages)
         logger.info("响应给用户的数据信息：" + model_rsp.content)
         return {"solution": model_rsp.content}
 
-    def medication_data_discovery(self, state: MedicalChatState) -> Dict[str, Dict[str, Any]]:
+    def medication_data_discovery_node(self, state: MedicalChatState) -> Dict[str, Dict[str, Any]]:
         """根据当前的会话信息获取对应的药物内容"""
         tmp_messages = state.get("messages", [])
-        tmp_disease_keyword = """
-            获取当前用户的疾病信息，并仅输出用户确定的疾病信息：
-        """
-        tmp_input_user_info = f"""
-            用户输出的会话信息为：
-                {tmp_messages[-1]}
-        """
-        system_messages = [SystemMessage(content=tmp_disease_keyword)]
-        user_messages = [HumanMessage(content=tmp_input_user_info)]
+
+        prompt_medication_keyword_sys = read_prompt(PROMPT_PATHS["medication_keyword_sys"])
+        prompt_medication_keyword_user = PromptTemplate.from_template(PROMPT_PATHS["medication_keyword_user"]).format(
+            input_messages = tmp_messages[-1]
+        )
+        system_messages = [SystemMessage(content=prompt_medication_keyword_sys)]
+        user_messages = [HumanMessage(content=prompt_medication_keyword_user)]
         model_rsp = self._model.invoke(system_messages + user_messages)
         disease_name = model_rsp.content.strip()
         logger.info(f"识别疾病：{disease_name}")
@@ -218,7 +178,7 @@ class MedicalChat:
         context_str = ""
         if results:
             for i, item in enumerate(results, 1):
-                context_str += f"【参考{i}】{item['text'][:300]}...\n"
+                context_str += f"【参考{i}】{item['text']}\n"
             logger.info(f"检索到 {len(results)} 条结果")
         else:
             context_str = "未检索到相关知识。"
@@ -232,29 +192,33 @@ class MedicalChat:
             "建议食用食物": recommend_food,
         }}
 
-    def chat_intent_choice(self, state: MedicalChatState) -> Dict[str, Any]:
+    def chat_intent_choice_node(self, state: MedicalChatState) -> Dict[str, Any]:
         """进行当前进行【症状探寻】和【药物探寻】的识别"""
-        logger.info("chat_intent_choice 进入【症状信息】或【药物信息】探寻")
+        logger.info("chat_intent_choice_node 进入【症状信息】或【药物信息】探寻")
         tmp_messages = state.get("messages", [])
         logger.info(f"最新会话信息：{tmp_messages[-1]}")
-        tmp_prompt = """
-            根据当前的会话信息判断当前用户最新的会话信息，是需要使用进行【药物资料信息查询】，还是需要使用【病情症状查询】。如果信息的会话信息中提供的是具体的疾病信息，必须选择【medication_inquiry】
-            输入内容只能是：
-            `medication_inquiry` 或 `symptoms_inquiry`
-        """
-        tmp_input_user_info = f"""
-            用户输出的会话信息为：
-                {tmp_messages[-1]}
-        """
-        system_messages = [SystemMessage(content=tmp_prompt)]
-        user_messages = [HumanMessage(content=tmp_input_user_info)]
+
+        prompt_chat_intent_choice_sys = read_prompt(PROMPT_PATHS["chat_intent_choice_sys"])
+        prompt_chat_intent_choice_user = PromptTemplate.from_template(PROMPT_PATHS["chat_intent_choice_user"]).format(
+            input_messages = tmp_messages[-1]
+        )
+        system_messages = [SystemMessage(content=prompt_chat_intent_choice_sys)]
+        user_messages = [HumanMessage(content=prompt_chat_intent_choice_user)]
         model_rsp = self._model.invoke(system_messages + user_messages)
+
         logger.info("响应给用户的数据信息：" + model_rsp.content)
         if model_rsp.content == "symptoms_inquiry":
             return {"chat_intention_router": "symptoms_inquiry"}
         return {"chat_intention_router": "medication_inquiry"}
 
     def chat_medical_router(self, state: MedicalChatState) -> str:
+        """
+        路由选择工具，选择 药物信息探寻 和 症状信息探寻
+        :param state:
+        :return:
+        """
+        logger.info("chat_medical_router 进行症状验证和药物验证")
+
         intention_router = state.get("chat_intention_router", "symptoms_inquiry")
         logger.info("当前会话聊天意图探寻：" + intention_router)
         return intention_router
@@ -265,35 +229,35 @@ class MedicalChat:
 
         # 添加节点
         # 判断当前结点【病情探寻】和【药物查询】
-        workflow.add_node("chat_intent_choice", self.chat_intent_choice)
+        workflow.add_node("chat_intent_choice_node", self.chat_intent_choice_node)
 
         # 药物信息探寻
-        workflow.add_node("medication_data_discovery", self.medication_data_discovery)
+        workflow.add_node("medication_data_discovery_node", self.medication_data_discovery_node)
 
         # 症状信息探寻
-        workflow.add_node("medical_intention_search", self.medical_intention_search)
-        workflow.add_node("medical_data_discovery", self.medical_data_discovery)
-        workflow.add_node("answer_question", self.answer_question)
+        workflow.add_node("medical_intention_search_node", self.medical_intention_search_node)
+        workflow.add_node("medical_data_discovery_node", self.medical_data_discovery_node)
+        workflow.add_node("answer_question_node", self.answer_question_node)
 
         # 【症状探寻】和【疾病探寻】路由
         workflow.add_conditional_edges(
-            "chat_intent_choice",
+            "chat_intent_choice_node",
             self.chat_medical_router,
             {
-                "medication_inquiry": "medication_data_discovery",
-                "symptoms_inquiry": "medical_intention_search"
+                "medication_inquiry": "medication_data_discovery_node",
+                "symptoms_inquiry": "medical_intention_search_node"
             }
         )
 
         # 添加边：START → 意图分析 → 数据探寻 → 回答生成 → END
         # 症状信息探寻路径
-        workflow.add_edge(START, "chat_intent_choice")
-        workflow.add_edge("medical_intention_search", "medical_data_discovery")
-        workflow.add_edge("medical_data_discovery", "answer_question")
+        workflow.add_edge(START, "chat_intent_choice_node")
+        workflow.add_edge("medical_intention_search_node", "medical_data_discovery_node")
+        workflow.add_edge("medical_data_discovery_node", "answer_question_node")
 
         # 药物信息探寻路径
-        workflow.add_edge("medication_data_discovery", "answer_question")
-        workflow.add_edge("answer_question", END)
+        workflow.add_edge("medication_data_discovery_node", "answer_question_node")
+        workflow.add_edge("answer_question_node", END)
 
         # 编译时若提供了 checkpointer，则传入
         if self._checkpointer is not None:
@@ -360,7 +324,6 @@ class MedicalChat:
             # 执行工作流
             new_state = self._workflow_graph.invoke(state)
 
-            self._print_state_full(new_state)
             # 获取回答
             answer = new_state.get("solution", "")
             if answer:
@@ -387,7 +350,6 @@ class MedicalChat:
                 logger.info(f"已保存本轮意图轮次: router={current_router}")
 
             return answer
-
         else:
             raise RuntimeError("未启用任何持久化方案，无法使用 process_message。")
 
@@ -436,28 +398,6 @@ class MedicalChat:
             except Exception as e:
                 logger.exception(f"处理失败: {e}")
                 print(f"错误: {e}")
-
-    def _print_state_full(self, state: MedicalChatState, title: str = "State"):
-        """完整打印 state 中的所有数据内容（调试用）"""
-        logger.info(f"========== {title} ==========")
-        msgs = state.get("messages", [])
-        logger.info(f"messages 列表 (共 {len(msgs)} 条):")
-        for i, msg in enumerate(msgs, 1):
-            logger.info(f"  [{i}] {msg.__class__.__name__}: {msg.content}")
-        intents = state.get("intentions", [])
-        logger.info(f"intentions 列表 (共 {len(intents)} 条):")
-        for i, intent in enumerate(intents, 1):
-            logger.info(f"  [{i}] {intent}")
-        disc_data = state.get("discovery_data", {})
-        logger.info(f"discovery_data 字典 (共 {len(disc_data)} 个键):")
-        for key, value in disc_data.items():
-            logger.info(f"  {key}: {value}")
-        solution = state.get("solution", "")
-        logger.info(f"solution 内容:\n{solution}")
-        router = state.get("chat_intention_router", "未设置")
-        logger.info(f"chat_intention_router: {router}")
-        logger.info(f"session_id: {state.get('session_id', '未设置')}")
-        logger.info(f"========== {title} 结束 ==========")
 
 
 # ==================== 使用示例 ====================
