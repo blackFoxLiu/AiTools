@@ -1,8 +1,7 @@
-import logging
-import re
-import uuid
 import json
+import logging
 import operator
+import uuid
 from functools import lru_cache
 from typing import List, Dict, Any, Optional, Annotated
 
@@ -14,7 +13,6 @@ from typing_extensions import TypedDict
 
 from MedicalDataDiscovery import MedicalDataDiscovery
 from knowledge_graph_tools import Neo4jQueryTools
-
 # 导入存储模块
 from session_store import SessionStore
 
@@ -156,7 +154,7 @@ class MedicalChat:
         tmp_discovery_data = state.get("discovery_data", {})
         medical_discovery_data = self._medical_data_discovery.get_medical_data_discovery(tmp_messages, tmp_discovery_data)
 
-        rst_discovery_data = {k: re.sub(r'\s+', '', v) for k, v in medical_discovery_data.items() if k != "messages"}
+        rst_discovery_data = {k: v for k, v in medical_discovery_data.items() if k != "messages"}
         logger.info(f"探寻结果: {rst_discovery_data}")
         return {"discovery_data": rst_discovery_data}
 
@@ -362,6 +360,7 @@ class MedicalChat:
             # 执行工作流
             new_state = self._workflow_graph.invoke(state)
 
+            self._print_state_full(new_state)
             # 获取回答
             answer = new_state.get("solution", "")
             if answer:
