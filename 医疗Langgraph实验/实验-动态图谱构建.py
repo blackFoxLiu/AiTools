@@ -35,7 +35,8 @@ neo4j_tools = Neo4jQueryTools()
 
 class DynamicKnowledgeState(TypedDict):
     messages: List[BaseMessage]
-    disease_analysis: Dict[str, Any]   # 由 supervisor 决定
+    disease_analysis: Dict[str, Any]
+    has_symptoms: Dict[str, Any]
 
 OLLAMA_CONFIG = {
     "model": "qwen3:8b",
@@ -90,7 +91,6 @@ def check_basic_symptom_node(state:DynamicKnowledgeState):
     :return:
     """
     logger.info("check_basic_symptom_node 进入")
-    # 调用 LLM，分析当前 messages，输出 next_agent
     disease_analysis:list[Any] = state["disease_analysis"]["primitive_concept_symptom"]["chief_complaint_list"]
     for disease_name in disease_analysis:
         disease_hit_cnt = check_symptom_exists(disease_name)
@@ -99,7 +99,7 @@ def check_basic_symptom_node(state:DynamicKnowledgeState):
             create_symptom_node(disease_name)
         else:
             update_symptom_hit_cnt(disease_name)
-    return {"next_agent": ""}
+    return {}
 
 # ==================== 新增 disease_analysis 节点相关函数 ====================
 def check_disease_analysis_exists(name: str) -> bool:
@@ -271,6 +271,34 @@ def process_symptom_disease_relations(state: DynamicKnowledgeState):
         merge_symptom_disease_relationship(symptom, disease_name)
     return {}
 
+
+def generate_rag_search_hit(state: DynamicKnowledgeState):
+    """
+        设置 RAG 命中语义设计，症状命中
+    :param self:
+    :param state:
+    :return:
+    """
+    chief_complaint_list = state["disease_analysis"]["primitive_concept_symptom"]["chief_complaint_list"]
+    rag_rst_list = list()
+    if chief_complaint_list:
+        rag_rst_list.append("符合医学本体论原子症状包括："+"、".join(chief_complaint_list))
+
+    associated_symptoms_list = state["has_symptoms"]["associated_symptoms"]
+    if associated_symptoms_list:
+        rag_rst_list.append("相关症状包括："+"、".join(associated_symptoms_list))
+
+    symptom_absent_list = state["has_symptoms"]["symptom_absent"]
+    if associated_symptoms_list:
+        rag_rst_list.append("不存在症状包括："+"、".join(symptom_absent_list))
+
+    disease_name = state["disease_analysis"]["disease_name"]
+    rag_symptom = "。".join(rag_rst_list)
+    if disease_name and rag_symptom:
+        rag_rst_date = disease_name+"存在"+rag_symptom
+
+    # TODO 补充意图命中
+
 # ==================== Graph 构建 ====================
 if __name__ == '__main__':
     graph = StateGraph(DynamicKnowledgeState)
@@ -315,5 +343,12 @@ if __name__ == '__main__':
         }
     }
 
-    messages = app.invoke({"disease_analysis": tmp_dict})
+    tmp_has_symptoms = {
+        "associated_symptoms": ["发热", "鼻塞", "咳嗽"],
+        "symptom_absent": ["恶心", "呕吐", "腹泻"]
+    }
+
+    messages = app.invoke({"disease_analysis": tmp_dict,
+                           "has_symptoms": tmp_has_symptoms
+                           })
     print(messages)
