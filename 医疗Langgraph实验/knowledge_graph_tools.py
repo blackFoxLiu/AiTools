@@ -1,5 +1,4 @@
 import json
-from typing import Dict, Any
 
 from neo4j import GraphDatabase
 from neo4j.graph import Node, Relationship, Path
@@ -129,6 +128,8 @@ class Neo4jQueryTools:
         rst_json = self._query(cypher, as_json=as_json)
         return rst_json[0]["total"]
 
+    def use_cypher(self, cypher, as_json=False):
+        return self._query(cypher, as_json=as_json)
 
 
 # 使用示例
@@ -142,3 +143,6 @@ if __name__ == '__main__':
     # 查询2：返回字典列表
     dict_result = client.query_disease("头风", as_json=False)
     print(dict_result)
+
+    json_result = client.use_cypher("MATCH (n:Disease) WHERE n.name = '二硫化碳中毒' RETURN n LIMIT 25")
+    print(json_result)

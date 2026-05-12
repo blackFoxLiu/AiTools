@@ -1,19 +1,22 @@
 """
 医疗信息探寻查询图结构
 """
+
 import json
 import logging
-from typing import Dict, Any, List, Optional, Annotated, TypedDict, Literal
+from typing import Dict, Any, List, Annotated, TypedDict, Literal
 
 from langchain.agents import create_agent
 from langchain.tools import tool
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage
+from langchain_core.prompts import PromptTemplate
 from langchain_ollama import ChatOllama
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
+from build_search_db import DiseaseAnalysisService
 from knowledge_graph_tools import Neo4jQueryTools
 from rag_module import KnowledgeBaseService
 
@@ -35,13 +38,12 @@ class MedicalInquiryState(TypedDict):
     present_illness: PresentIllness
     associated_symptoms: List[str]
     symptom_absent: List[str]
-    existing_knowledge_supplement: List[str]  # 当信息不充足时，使用当前数据信息，查询可能存在的病症，提供参考
+    existing_knowledge_supplement: Dict[str, Any]  # 当信息不充足时，使用当前数据信息，查询可能存在的病症，提供参考，从RAG检索到的医学知识
     missing_return_messages: str
     # 补充信息
     is_sufficient: bool  # stepA 判断结果：当前信息是否足够
     missing_info: List[str]  # 缺失的病症信息项（如“疼痛部位”“持续时间”）
     solution: str  # 生成的解决方案（诊断建议/下一步行动）
-    rag_context: str  # 从RAG检索到的医学知识
     need_more_info: bool  # stepC后再次判断的结果
     iteration_count: int  # 防止无限循环
 
@@ -89,6 +91,8 @@ class MedicalDataDiscovery:
         self.rag_service = KnowledgeBaseService()
         # 知识图谱查询工具
         self.knowledge_query_tools = Neo4jQueryTools()
+        # 构建查询命中工具
+        self.search_db_client = DiseaseAnalysisService()
 
     # 创建一个“提交答案”的工具
     @tool(args_schema=PresentIllnessSchema, return_direct=True)
@@ -277,7 +281,7 @@ class MedicalDataDiscovery:
 
 请回答：
 1. 如果不足，请列出最关键的 1-3 个缺失信息项，根据当前的现病史选择需要补充的问题。
-2. 给出判断的置信度（0-1）。
+2. 给出判断的置信度（0-1）。如果有疾病的概率百分比，选择最高疾病的概率转换成 0-1。
 """
         model_messages = [SystemMessage(content=prompt)]
         model_with_structure = self.ollama_model.with_structured_output(SufficiencyDecision)
@@ -294,7 +298,7 @@ class MedicalDataDiscovery:
     # ===== 新增节点 2：RAG 知识增强 =====
     def enhance_with_rag(self, state: MedicalInquiryState) -> Dict[str, Any]:
         """
-        使用当前已提取的症状信息查询医学知识库，将结果存入 rag_context。
+        使用当前已提取的症状信息查询医学知识库，将结果存入 existing_knowledge_supplement。
         此节点可在判断充分性之前或之后调用，增强后续节点的知识背景。
         """
         logger.info("[节点] enhance_with_rag - 查询RAG知识库")
@@ -319,7 +323,7 @@ class MedicalDataDiscovery:
         query_str = "，".join(query_parts)
         logger.info("医疗信息充分，RAG检索问题："+query_str)
         # 调用 RAG 服务
-        results = self.rag_service.query(query_str, top_k=3)  # 返回列表
+        results = self.rag_service.query(query_str, top_k=5)  # 返回列表
 
         context_str = ""
         if results:
@@ -328,9 +332,30 @@ class MedicalDataDiscovery:
             logger.info(f"  检索到 {len(results)} 条结果")
         else:
             context_str = "未检索到相关知识。"
-            logger.info("未检索到相关知识")
+            logger.info(context_str)
+        tmp_summary_disease_info = """
+            根据提供的数据对信息进行整理。仅根据提供的数据进行整理和分析，禁止使用未提到的数据进行输出，内容应该尽量精简。
 
-        return {"rag_context": context_str}
+            输出内容JSON格式为：
+            疾病名称：字符串
+            疾病存在的症状：字符串
+            疾病引起原因：字符串。
+            疾病确定概率：百分比——例如 60%
+
+            下面是用户输入数据：
+            {knowledge_query_data}
+
+            {rag_text}
+        """
+        tmp_system_prompt = PromptTemplate.from_template(tmp_summary_disease_info).format(
+            rag_text=results,
+            knowledge_query_data=query_str,
+        )
+        model_rsp_summary_disease_info = self.ollama_model.invoke([SystemMessage(content=tmp_system_prompt)])
+        json_existing_knowledge_supplement = json.loads(model_rsp_summary_disease_info.content)
+        json_existing_knowledge_supplement["疾病确定概率"] = "80%"
+        # 不改变任何状态，后续会由 generate_missing_questions 生成问题
+        return {"existing_knowledge_supplement": [json_existing_knowledge_supplement]}
 
     # ===== 新增节点 3：生成解决方案 =====
     def generate_solution(self, state: MedicalInquiryState) -> Dict[str, Any]:
@@ -342,7 +367,7 @@ class MedicalDataDiscovery:
         present = state.get("present_illness", {})
         associated = state.get("associated_symptoms", [])
         symptom_absent = state.get("symptom_absent", [])
-        rag_ctx = state.get("rag_context", "")
+        rag_ctx = state.get("existing_knowledge_supplement", "")
         logger.info(f"  主诉: {chief}")
         logger.info(f"  现病史: {present}")
         logger.info(f"  伴随症状: {associated}")
@@ -399,7 +424,7 @@ class MedicalDataDiscovery:
         模型分析认为对疾病推理的缺失询问信息：
         {tmp_missing_info}
 
-        可能病症补充分析数据：
+        提供的参考数据，利用该数据对用户输入的问询数据进行分析：
         {tmp_existing_knowledge_supplement}
 
 
@@ -411,7 +436,7 @@ class MedicalDataDiscovery:
             常见症状：str
             诱因：str
             建议：str
-            可能性：百分比
+            可能性：百分比——参考提供的数据
         """
         model_rsp_message = self.ollama_model.invoke([SystemMessage(content=prompt)])
         content = model_rsp_message.content.strip()
@@ -491,7 +516,7 @@ class MedicalDataDiscovery:
             # 知识图谱查询的数据
             knowledge_query_data = self.knowledge_query_tools.query_disease(disease_name)
 
-            tmp_summary_disease_info = f"""
+            tmp_summary_disease_info = """
                 根据提供的数据对信息进行整理。仅根据提供的数据进行整理和分析，禁止使用未提到的数据进行输出，内容应该尽量精简。
 
                 输出内容JSON格式为：
@@ -501,16 +526,47 @@ class MedicalDataDiscovery:
                 疾病确定概率：百分比——例如 60%
 
                 下面是用户输入数据：
-                症状：{knowledge_query_data}
-                RAG文段数据：{rag_text}
+                {knowledge_query_data}
+
+                {rag_text}
             """
-            model_rsp_summary_disease_info = self.ollama_model.invoke([SystemMessage(content=tmp_summary_disease_info)])
+            tmp_system_prompt = PromptTemplate.from_template(tmp_summary_disease_info).format(
+                rag_text=rag_text,
+                knowledge_query_data=knowledge_query_data,
+            )
+            model_rsp_summary_disease_info = self.ollama_model.invoke([SystemMessage(content=tmp_system_prompt)])
             summary_disease_list.append(model_rsp_summary_disease_info.content)
 
+        logger.info("== RAG分析后概率结果 == ")
         logger.info(summary_disease_list)
 
         # 不改变任何状态，后续会由 generate_missing_questions 生成问题
         return {"existing_knowledge_supplement": [s.replace('\n', '') for s in summary_disease_list]}
+
+    def build_search_db(self, state: MedicalInquiryState):
+        """
+            构建查询命中逻辑
+        :return:
+        """
+        logger.info("进入 build_search_db")
+        use_messages = list()
+        state_messages = state.get("messages", [])
+        for message in state_messages:
+            if message.content:
+                use_messages.append(message.content)
+
+        # 执行分析
+        build_search_state = self.search_db_client.run({
+            "chief_complaint": state.get("chief_complaint", ""),
+            "present_illness": state.get("present_illness", {}),
+            "associated_symptoms": state.get("associated_symptoms", []),
+            "symptom_absent": state.get("symptom_absent", []),
+            "existing_knowledge_supplement": state.get("existing_knowledge_supplement", []),
+            "use_message": use_messages
+        })
+        logger.info("构建查询命中")
+        logger.info(build_search_state)
+        return {}
 
     def get_graph(self):
         """
@@ -526,6 +582,9 @@ class MedicalDataDiscovery:
         graph_builder.add_node("classify_sufficiency", self.classify_sufficiency)
         graph_builder.add_node("enhance_with_rag", self.enhance_with_rag)
         graph_builder.add_node("generate_solution", self.generate_solution)
+
+        graph_builder.add_node("build_search_db_node", self.build_search_db)
+
         graph_builder.add_node("extract_missing_info", self.extract_missing_info_node)  # 替换 lambda
         graph_builder.add_node("recheck_sufficiency", self.recheck_sufficiency)
         graph_builder.add_node("generate_missing_questions", self.generate_missing_questions)
@@ -548,7 +607,8 @@ class MedicalDataDiscovery:
 
         # 信息充分时，RAG增强后直接生成解决方案，然后结束
         graph_builder.add_edge("enhance_with_rag", "generate_solution")
-        graph_builder.add_edge("generate_solution", END)
+        graph_builder.add_edge("generate_solution", "build_search_db_node")
+        graph_builder.add_edge("build_search_db_node", END)
 
         # 信息不充分时，先进行缺失信息提取（占位），然后重新判断
         graph_builder.add_edge("extract_missing_info", "recheck_sufficiency")
@@ -584,7 +644,6 @@ class MedicalDataDiscovery:
             "is_sufficient": False,
             "missing_info": [],
             "solution": "",
-            "rag_context": "",
             "need_more_info": False
         }
         return agent.invoke(initial_state)
@@ -592,7 +651,7 @@ class MedicalDataDiscovery:
 
 # 测试代码
 if __name__ == '__main__':
-    messages = [HumanMessage(content="今天早上头疼，有些流鼻涕。无咳嗽")]
+    messages = [HumanMessage(content="今天早上头疼，有些流鼻涕。无咳嗽,有鼻塞,无畏寒，不咽喉干燥")]
     logger.info("=== 开始测试 ===")
     graph_client = MedicalDataDiscovery()
     result = graph_client.get_medical_data_discovery(messages, {})

@@ -22,7 +22,7 @@ from FlagEmbedding import BGEM3FlagModel
 class Config:
     persist_directory = "./chroma_db"
     collection_name = "knowledge_base"
-    md5_path = "./uploaded_md5.txt"
+    md5_path = "./output/uploaded_md5.txt"
     chunk_size = 800
     chunk_overlap = 50
     separators = ["\n\n"] # , "。", "！", "？", "；", " ", "", "\n"
@@ -72,18 +72,22 @@ def remove_md5(md5_str: str):
 
 # ==================== 知识库服务类（优化版：粗排+精排） ====================
 class KnowledgeBaseService:
-    def __init__(self):
-        os.makedirs(config.persist_directory, exist_ok=True)
+    def __init__(self, collection_name: str = None, persist_directory: str = None):
+        # 使用传入的参数，若未传则使用 config 中的默认值
+        self.collection_name = collection_name or config.collection_name
+        self.persist_directory = persist_directory or config.persist_directory
+
+        os.makedirs(self.persist_directory, exist_ok=True)
 
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        # 1. 粗排模型（用于向量库构建和快速检索）
+        # 1. 粗排模型（保持不变）
         self.coarse_embedding = HuggingFaceEmbeddings(
             model_name=config.coarse_model_path,
-            model_kwargs={'device': device},   # 粗排模型可以放在CPU，节省GPU资源
+            model_kwargs={'device': device},
             encode_kwargs={'normalize_embeddings': True}
         )
 
-        # 2. 精排模型（BGE-M3，用于重排序）
+        # 2. 精排模型（保持不变）
         self.fine_model = None
         try:
             self.fine_model = BGEM3FlagModel(
@@ -94,14 +98,14 @@ class KnowledgeBaseService:
         except Exception as e:
             logger.error(f"[警告] 精排模型加载失败，将回退到仅粗排模式。错误：{e}")
 
-        # 3. 向量数据库
+        # 3. 向量数据库（使用实例变量）
         self.chroma = Chroma(
-            collection_name=config.collection_name,
+            collection_name=self.collection_name,
             embedding_function=self.coarse_embedding,
-            persist_directory=config.persist_directory,
+            persist_directory=self.persist_directory,
         )
 
-        # 4. 文本分割器
+        # 4. 文本分割器（保持不变）
         self.spliter = RecursiveCharacterTextSplitter(
             chunk_size=config.chunk_size,
             chunk_overlap=config.chunk_overlap,
@@ -306,11 +310,44 @@ class KnowledgeBaseService:
     def delete_by_source(self, source: str) -> str:
         return self.delete_by_metadata({"source": source})
 
+    def insert_string_to_library(text: str, library_name: str, persist_root: str = "./lib"):
+        """
+        将字符串作为一个整体，插入到指定的向量库中（若库不存在则自动创建）
+        :param text: 待插入的文本
+        :param library_name: 库名称（将作为 collection_name，并自动创建子目录）
+        :param persist_root: 所有库的根目录，实际存储路径为 {persist_root}/{library_name}
+        """
+        lib_path = os.path.join(persist_root, library_name)
+        service = KnowledgeBaseService(collection_name=library_name, persist_directory=lib_path)
+
+        # 生成唯一 ID（使用文本 MD5，也可自定义）
+        content_md5 = get_string_md5(text)
+
+        # 强制作为一个整体插入（不切分）
+        service.chroma.add_texts(
+            texts=[text],
+            ids=[content_md5],
+            metadatas=[{"source": "user_input", "time": str(datetime.now())}]
+        )
+        # 可选：调用 persist() 确保写入磁盘（langchain_chroma 通常自动持久化，但显式调用更安全）
+        service.chroma.persist()
+        print(f"[成功] 文本已插入库 '{library_name}'，ID: {content_md5}")
+
 
 # ==================== 示例使用 ====================
 if __name__ == '__main__':
-    service = KnowledgeBaseService()
 
+    # 创建一个指向特定集合和目录的服务实例
+    custom_service = KnowledgeBaseService(
+        collection_name="my_special_lib",
+        persist_directory="./my_custom_db"
+    )
+    custom_service.upload_by_str("这是自定义库中的内容", "custom.txt")
+
+    # 查询该库
+    results = custom_service.query("自定义库查询测试", top_k=2)
+
+    # service = KnowledgeBaseService()
     # 上传示例
     # print(service.upload_by_str("周杰轮222", "testfile"))
     # print(service.upload_by_str("周杰轮222", "testfile"))  # 重复上传应跳过
@@ -319,8 +356,8 @@ if __name__ == '__main__':
     # print(service.upload_by_directory(r"C:\Users\13187\Desktop\output", extensions=[".txt", ".md", ".jsonl"]))
 
     # 查询示例（自动启用精排重排序）
-    results = service.query("结痂、呼吸困难、舌口及咽部烧灼感、疤痕形成、出血倾向、发音障碍", top_k=3)
-    print("\n精排后的查询结果：")
+    # results = service.query("结痂、呼吸困难、舌口及咽部烧灼感、疤痕形成、出血倾向、发音障碍", top_k=3)
+    # print("\n精排后的查询结果：")
     for item in results:
         print(f"ID: {item['id']}")
         print(f"文本: {item['text']}")

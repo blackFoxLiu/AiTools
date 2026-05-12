@@ -92,6 +92,7 @@ class MedicalChat:
         # 持久化组件（二选一）
         self._session_store = session_store
         self._checkpointer = checkpointer
+        self.session_id = None
 
         if session_store and checkpointer:
             raise ValueError("不能同时指定 session_store 和 checkpointer，请选择一种持久化方式")
@@ -301,17 +302,17 @@ class MedicalChat:
             return workflow.compile()
 
     # ---------- 核心交互接口 ----------
-    def process_message(self, user_input: str, session_id: Optional[str] = None) -> str:
+    def process_message(self, user_input: str) -> str:
         """
         处理用户消息，返回助手回复。
         支持 SessionStore 和 Checkpointer 两种持久化方式。
         """
         # 长期方案：Checkpointer
         if self._checkpointer is not None:
-            if session_id is None:
-                session_id = str(uuid.uuid4())
-                logger.info(f"创建新会话 (checkpointer): {session_id}")
-            config = {"configurable": {"thread_id": session_id}}
+            if self.session_id is None:
+                self.session_id = str(uuid.uuid4())
+                logger.info(f"创建新会话 (checkpointer): {self.session_id}")
+            config = {"configurable": {"thread_id": self.session_id}}
             checkpoint_tuple = self._checkpointer.get_tuple(config)
             if checkpoint_tuple is None:
                 current_state = {
@@ -320,7 +321,7 @@ class MedicalChat:
                     "discovery_data": {},
                     "solution": "",
                     "chat_intention_router": "",
-                    "session_id": session_id
+                    "session_id": self.session_id
                 }
             else:
                 # 恢复状态后追加用户消息
@@ -333,10 +334,9 @@ class MedicalChat:
         # 短期方案：SessionStore
         elif self._session_store is not None:
             # 短期方案：使用 SessionStore
-            if session_id is None:
-                # 创建新会话
-                session_id = self._session_store.create_session()
-                logger.info(f"创建新会话 (SessionStore): {session_id}")
+            if self.session_id is None:
+                self.session_id = self._session_store.create_session()
+                logger.info(f"创建新会话 (SessionStore): {self.session_id}")
                 # 初始状态下 chat_intention_router 必须为空字符串（而非默认路由）
                 state = {
                     "messages": [],
@@ -344,12 +344,12 @@ class MedicalChat:
                     "discovery_data": {},
                     "solution": "",
                     "chat_intention_router": "",
-                    "session_id": session_id
+                    "session_id": self.session_id
                 }
             else:
-                restored = self._session_store.restore_state(session_id)
+                restored = self._session_store.restore_state(self.session_id)
                 if restored is None:
-                    raise ValueError(f"会话 {session_id} 不存在")
+                    raise ValueError(f"会话 {self.session_id} 不存在")
                 state = restored
                 state["solution"] = ""
 
@@ -371,7 +371,7 @@ class MedicalChat:
             old_msg_len = len(state["messages"]) - 1   # 刚添加的用户消息前长度
             for msg in new_state["messages"][old_msg_len:]:
                 role = "user" if isinstance(msg, HumanMessage) else "assistant"
-                self._session_store.add_message(session_id, role, msg.content)
+                self._session_store.add_message(self.session_id, role, msg.content)
 
             # 保存意图轮次
             if len(new_state["intentions"]) > old_intent_len:
@@ -379,7 +379,7 @@ class MedicalChat:
                 current_discovery = new_state.get("discovery_data", {})
                 current_router = new_state.get("chat_intention_router", "")
                 self._session_store.add_intention_round(
-                    session_id,
+                    self.session_id,
                     intention_dict=new_intent_dict,
                     discovery_data=current_discovery,
                     router_value=current_router
@@ -404,7 +404,6 @@ class MedicalChat:
         print("2. 加载历史会话")
         choice = input("请选择 (1/2): ").strip()
 
-        session_id = None
         if choice == "2":
             # 列出历史会话
             if self._session_store:
@@ -420,7 +419,7 @@ class MedicalChat:
                     print(f"{idx}. {sess['title']} (最后更新: {sess['updated_at']})")
                 try:
                     idx = int(input("请输入序号: ")) - 1
-                    session_id = sessions[idx]["session_id"]
+                    self.session_id = sessions[idx]["session_id"]
                 except (ValueError, IndexError):
                     print("无效输入，将创建新会话")
 
@@ -432,7 +431,7 @@ class MedicalChat:
             if not user_input:
                 continue
             try:
-                answer = self.process_message(user_input, session_id)
+                answer = self.process_message(user_input)
                 print(f"[助手]\n{answer}")
             except Exception as e:
                 logger.exception(f"处理失败: {e}")
