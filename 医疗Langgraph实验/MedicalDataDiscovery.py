@@ -81,13 +81,28 @@ class PresentIllnessSchema(BaseModel):
     treatments_received: List[str] = Field(description="接受过的治疗或服用的药物清单")
 
 
-# ===== 新增：信息充分性判断的结构化输出类 =====
-class SufficiencyDecision(BaseModel):
-    """判断当前信息是否足够进行病症分析，并列出缺失的关键信息"""
-    missing_info: List[str] = Field(description="若不足够，列出需要补充的医疗信息项（如'是否有发热或体温变化'、'是否有鼻窦压痛或鼻涕颜色异常'等）")
-    confidence: float = Field(description="判断的置信度，0-1之间。应该尽可能重新的信息进行分析")
+# ===== 信息充分性判断的结构化输出类 =====
+class MedicalAdvice(BaseModel):
+    possible_diagnoses: List[str] = Field(
+        description="可能的疾病诊断，2-3个，按可能性降序排列，每个诊断可附带理由，格式如'偏头痛 – 符合搏动性头痛伴恶心畏光'"
+    )
+    next_actions: str = Field(
+        description="建议的下一步行动，包括紧急程度分层（立即就医/近期门诊）、建议检查、自我监测方法等，清晰可操作"
+    )
+    disclaimer: str = Field(
+        description="免责声明，固定内容或根据情况微调，但必须包含核心警示"
+    )
 
-# ===== 新增：生成解决方案的结构化输出类 =====
+class SufficiencyDecision(BaseModel):
+    """判断当前信息是否足够进行病症分析，并给出完整的初步医学建议（将建议结构放在 missing_info 中）"""
+    missing_info: MedicalAdvice = Field(
+        description="基于当前已有信息（即使不完整）的医学建议，包含可能的诊断、下一步行动和免责声明"
+    )
+    confidence: float = Field(
+        description="判断信息充分性的置信度，0-1之间。应尽可能根据已有信息进行分析。≥0.7表示信息足够，<0.7表示信息不足"
+    )
+
+# ===== 生成解决方案的结构化输出类 =====
 class SolutionOutput(BaseModel):
     """生成的解决方案（诊断建议/下一步行动）"""
     possible_diagnoses: List[str] = Field(description="可能的疾病诊断列表")
@@ -244,13 +259,11 @@ class MedicalDataDiscovery:
 
         prompt_medical_chat_answer_sys = read_prompt(PROMPT_PATHS["sufficiency_decision_sys"])
         prompt_medical_chat_answer_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["sufficiency_decision_user"])).format(
-            input_user ={
-                "chief_complaint":chief,
-                "present_illness": present,
-                "associated_symptoms": associated,
-                "symptom_absent": symptom_absent,
-                "existing_knowledge_supplement": existing_knowledge_sup,
-            },
+            chief_complaint =chief,
+            present_illness=present,
+            associated_symptoms=associated,
+            symptom_absent=symptom_absent,
+            existing_knowledge_supplement=existing_knowledge_sup,
             input_messages=messages_text
         )
 
@@ -260,8 +273,10 @@ class MedicalDataDiscovery:
         model_with_structure = self.ollama_model.with_structured_output(SufficiencyDecision)
         decision = model_with_structure.invoke(system_messages + user_messages)
 
-        logger.info(f"  缺失信息: {decision.missing_info}")
-        logger.info(f"  置信度: {decision.confidence}")
+        logger.info(f"  缺失信息: {decision.missing_info.possible_diagnoses}")
+        logger.info(f"  下一步操作: {decision.missing_info.next_actions}")
+        logger.info(f"  提示: {decision.missing_info.disclaimer}")
+        logger.info(f"  置信度: {decision.confidenc}")
 
         return {
             "is_sufficient": True if decision.confidence >= 0.7 else False,

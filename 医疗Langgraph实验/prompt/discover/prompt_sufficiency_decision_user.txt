@@ -1,5 +1,18 @@
-用户输入：
-{input_user}
+请根据以下结构化患者信息和对话历史，输出 JSON 格式的医学建议（放在 missing_info 字段中）以及信息充分性置信度。
 
-用户会话信息：
+## 结构化信息
+- 主诉：{chief_complaint}
+- 现病史（发病时间、发作规律、已用治疗）：{present_illness}
+- 伴随症状：{associated_symptoms}
+- 明确不存在的症状：{symptom_absent}
+- 医学知识库补充：{existing_knowledge_supplement}
+
+## 对话历史（最近几轮交互）
 {input_messages}
+
+## 输出格式
+仅输出一个 JSON 对象，包含：
+- "missing_info": {{ "possible_diagnoses": [...], "next_actions": "...", "disclaimer": "..." }}
+- "confidence": 0.xx
+
+注意：即使信息不足，也必须基于现有信息给出初步建议（在 next_actions 中注明信息局限性）。请严格遵循系统提示中的输出示例格式。
