@@ -231,10 +231,11 @@ class DiseaseAnalysisService:
         disease_desc = self.build_symptom_description(user_data)
         supplement_list = user_data.get("existing_knowledge_supplement", [])
 
-        high_prob_analyses = []
-
-        #
         human_message = user_data.get("use_message", [])
+
+        # 初始化变量，避免循环未执行时的 UnboundLocalError
+        disease_severity_res = {}  # 默认值
+        high_prob_analyses = []
 
         # 病症状态信息
         for item_str in supplement_list:

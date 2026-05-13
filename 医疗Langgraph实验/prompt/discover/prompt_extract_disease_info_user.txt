@@ -1,2 +1,5 @@
 当前已经存在的现病史信息：
-{input_data}
+{input_present_illness}
+
+会话信息：
+{input_message}

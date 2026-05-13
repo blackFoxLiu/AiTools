@@ -158,7 +158,8 @@ class MedicalDataDiscovery:
 
         extract_disease_info_sys = read_prompt(PROMPT_PATHS["extract_disease_info_sys"])
         extract_disease_info_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["extract_disease_info_user"])).format(
-            input_data = state["messages"][-1]
+            input_message = state["messages"][-1],
+            input_present_illness = state["present_illness"]
         )
 
         extract_disease_info_sys_messages = [SystemMessage(content=extract_disease_info_sys)]
