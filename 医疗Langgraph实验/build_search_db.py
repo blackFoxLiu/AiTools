@@ -10,38 +10,39 @@ from langchain_ollama import ChatOllama
 from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END, add_messages
 
-
-
-# 假设 common_utils 中提供 read_prompt 函数
-from common_utils import read_prompt,safe_json_parse
-
+from common_utils import read_prompt, safe_json_parse
 from build_dynamic_knowledge import KnowledgeGraphUpdateService
 
-# ==================== 日志配置（保留原有方式）====================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 class SearchClassState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     high_prob_diseases_analysis: List[Dict[str, Any]]
     has_symptoms: Dict[str, Any]
     disease_severity: Dict[str, Any]
+    current_analysis: Dict[str, Any]
+    last_severity: Dict[str, Any]
+
+
+# ---------- 子图专用状态（继承自父状态，增加迭代字段）----------
+class DiseaseAnalysisSubgraphState(SearchClassState):
+    current_index: int                     # 当前处理的疾病索引
+    diseases_list: List[Dict[str, Any]]    # 高概率疾病列表（每个元素包含疾病信息）
+    disease_desc: str                      # 预生成的症状描述
+    human_message: List[str]               # 用户原始会话消息
 
 
 class DiseaseAnalysisService:
-    """
-    疾病症状分析服务类
-    基于 LLM (Ollama) 和多节点工作流，对高概率疾病进行多维度分类分析
-    """
+    """疾病症状分析服务类（使用子图重构）"""
 
-    # 默认 Ollama 配置
     DEFAULT_OLLAMA_CONFIG = {
         "model": "qwen3:8b",
         "base_url": "http://127.0.0.1:11434",
         "temperature": 0.0
     }
 
-    # 默认 Prompt 文件路径（可根据实际修改）
     DEFAULT_PROMPT_PATHS = {
         "primitive_concept_sys": "./prompt/prompt_primitive_concept_sys.txt",
         "primitive_concept_user": "./prompt/prompt_primitive_concept_user.txt",
@@ -57,7 +58,6 @@ class DiseaseAnalysisService:
         "disease_severity_user": "./prompt/prompt_disease_severity_user.txt",
     }
 
-    # 高概率阈值
     PROBABILITY_THRESHOLD = 70
 
     def __init__(
@@ -66,57 +66,33 @@ class DiseaseAnalysisService:
         prompt_paths: Optional[Dict[str, str]] = None,
         probability_threshold: int = 70
     ):
-        """
-        初始化服务
-
-        Args:
-            ollama_config: Ollama 配置，例如 {"model": "qwen3:8b", "base_url": "http://...", "temperature": 0.0}
-            prompt_paths: Prompt 文件路径字典，键与 DEFAULT_PROMPT_PATHS 相同
-            probability_threshold: 疾病概率阈值（百分比），大于该值的疾病才会被分析
-        """
         self.ollama_config = ollama_config or self.DEFAULT_OLLAMA_CONFIG
         self.prompt_paths = prompt_paths or self.DEFAULT_PROMPT_PATHS
         self.probability_threshold = probability_threshold
-
-        # 动态命中知识图谱
         self.dynamic_knowledge = KnowledgeGraphUpdateService()
-
-        # 延迟初始化模型（单例）
         self._chat_model = None
 
-        # 构建并编译工作流
+        # 主工作流（使用子图节点）
         self.workflow = self._build_workflow()
 
     @lru_cache(maxsize=1)
     def _get_chat_model(self) -> ChatOllama:
-        """获取 Ollama 模型实例（缓存）"""
         return ChatOllama(
             model=self.ollama_config["model"],
             base_url=self.ollama_config["base_url"],
             temperature=self.ollama_config["temperature"]
         )
 
-    # ---------- 各节点运行函数 ----------
-    def _run_generate_disease_desc(self, chat_message: list, disease_name):
-        """
-        生成一个摘要行描述
-        :param chat_message:
-        :param disease_name:
-        :return:
-        """
+    # ---------- 原子 LLM 调用（保持不变，供子图内部使用）----------
+    def _run_generate_disease_desc(self, chat_message: list, disease_name: str) -> str:
         logger.info("=== 进入 _run_generate_disease_desc ===")
-        sys_prompt = """
-            提供一个用户对自身病症状态的信息的会话列表，需要分析出当前内容，提问的核心要素信息。以常人的角度，会这样提问。总结成一个人类对病症的描述性文段。只输入描述性结果即可。
-        """
+        sys_prompt = "提供一个用户对自身病症状态的信息的会话列表，需要分析出当前内容，提问的核心要素信息。以常人的角度，会这样提问。总结成一个人类对病症的描述性文段。只输入描述性结果即可。"
         user_prompt = PromptTemplate.from_template("""
             会话列表：
             {chat_message}
             疾病名称:
             {disease_name}
-        """).format(
-            chat_message = chat_message,
-            disease_name = disease_name
-        )
+        """).format(chat_message=chat_message, disease_name=disease_name)
         response = self._get_chat_model().invoke([
             SystemMessage(content=sys_prompt),
             HumanMessage(content=user_prompt)
@@ -124,7 +100,7 @@ class DiseaseAnalysisService:
         logger.info("=== 退出 _run_generate_disease_desc ===")
         return response.content
 
-    def _run_disease_severity_node(self, input_text: str):
+    def _run_disease_severity_node(self, input_text: str) -> Dict[str, Any]:
         sys_prompt = read_prompt(self.prompt_paths["disease_severity_sys"])
         user_prompt = PromptTemplate.from_template(
             read_prompt(self.prompt_paths["disease_severity_user"])
@@ -135,7 +111,7 @@ class DiseaseAnalysisService:
         ])
         return safe_json_parse(response.content)
 
-    def _run_primitive_concept_node(self, input_text: str):
+    def _run_primitive_concept_node(self, input_text: str) -> Dict[str, Any]:
         sys_prompt = read_prompt(self.prompt_paths["primitive_concept_sys"])
         user_prompt = PromptTemplate.from_template(
             read_prompt(self.prompt_paths["primitive_concept_user"])
@@ -193,14 +169,10 @@ class DiseaseAnalysisService:
     # ---------- 辅助方法 ----------
     @staticmethod
     def build_symptom_description(data: Union[str, Dict]) -> str:
-        """
-        从输入数据中生成症状描述文本
-        """
         if isinstance(data, str):
             json_data = safe_json_parse(data)
         else:
             json_data = data
-
         chief = json_data.get("chief_complaint", "")
         pi = json_data.get("present_illness", {})
         onset = pi.get("onset_time", "")
@@ -208,21 +180,13 @@ class DiseaseAnalysisService:
         treatments = ", ".join(pi.get("treatments_received", [])) if pi.get("treatments_received") else "无"
         associated = ", ".join(json_data.get("associated_symptoms", [])) if json_data.get("associated_symptoms") else "无"
         absent = ", ".join(json_data.get("symptom_absent", [])) if json_data.get("symptom_absent") else "无"
+        return (f"主诉：{chief}。现病史：起病时间 {onset}，病程模式 {pattern if pattern else '未描述'}，"
+                f"已接受治疗：{treatments}。伴随症状：{associated}。阴性症状：{absent}。")
 
-        description = (
-            f"主诉：{chief}。"
-            f"现病史：起病时间 {onset}，病程模式 {pattern if pattern else '未描述'}，"
-            f"已接受治疗：{treatments}。"
-            f"伴随症状：{associated}。"
-            f"阴性症状：{absent}。"
-        )
-        return description
-
-    # ---------- 工作流节点 ----------
-    def _loop_over_diseases_node(self, state: SearchClassState):
+    # ---------- 子图内部节点 ----------
+    def _parse_input_node(self, state: DiseaseAnalysisSubgraphState) -> DiseaseAnalysisSubgraphState:
+        """解析原始输入，生成疾病列表、症状描述等共享数据"""
         raw_input = state["messages"][-1].content
-
-        # 若输入是字符串，尝试解析为 JSON；否则假定已经是 dict
         if isinstance(raw_input, str):
             user_data = json.loads(raw_input)
         else:
@@ -230,94 +194,145 @@ class DiseaseAnalysisService:
 
         disease_desc = self.build_symptom_description(user_data)
         supplement_list = user_data.get("existing_knowledge_supplement", [])
-
         human_message = user_data.get("use_message", [])
 
-        # 初始化变量，避免循环未执行时的 UnboundLocalError
-        disease_severity_res = {}  # 默认值
-        high_prob_analyses = []
-
-        # 病症状态信息
+        # 筛选高概率疾病
+        diseases = []
         for item_str in supplement_list:
             try:
-                if isinstance(item_str, str):
-                    disease_info = json.loads(item_str)
-                else:
-                    disease_info = item_str
+                disease_info = json.loads(item_str) if isinstance(item_str, str) else item_str
             except json.JSONDecodeError:
                 continue
-
             prob_str = disease_info.get("疾病确定概率", "0%")
             match = re.search(r"(\d+)", prob_str)
             prob = int(match.group(1)) if match else 0
-            if prob <= self.probability_threshold:
-                continue
+            if prob > self.probability_threshold:
+                diseases.append({
+                    "name": disease_info.get("疾病名称", "未知疾病"),
+                    "symptoms": disease_info.get("疾病存在的症状", ""),
+                    "causes": disease_info.get("疾病引起原因", ""),
+                    "probability": prob
+                })
 
-            disease_name = disease_info.get("疾病名称", "未知疾病")
-            symptoms = disease_info.get("疾病存在的症状", "")
-            causes = disease_info.get("疾病引起原因", "")
-
-            knowledge_text = (
-                f"疾病名称：{disease_name}\n存在的症状：{symptoms}\n引起原因：{causes}。"
-                f"{disease_desc}。RAG Chunk："
-            )
-
-            # 顺序执行五个分类节点
-            primitive_res = self._run_primitive_concept_node(knowledge_text)
-            disease_severity_res = self._run_disease_severity_node(knowledge_text)
-            course_res = self._run_disease_course_node(knowledge_text)
-            body_res = self._run_human_body_system_node(knowledge_text)
-            mani_res = self._run_manifestation_characteristics_node(knowledge_text)
-            nature_res = self._run_symptom_nature_node(knowledge_text)
-            human_desc = self._run_generate_disease_desc(human_message, disease_name)
-
-            high_prob_analyses.append({
-                "disease_name": disease_name,
-                "probability": f"{prob}%",
-                "primitive_concept_symptom": primitive_res,
-                "disease_course": course_res,
-                "human_body_system": body_res,
-                "manifestation_characteristics": mani_res,
-                "symptom_nature": nature_res,
-                "human_desc": human_desc
-            })
         return {
-                    "high_prob_diseases_analysis": high_prob_analyses,
-                    "has_symptoms": {
-                        "associated_symptoms": user_data.get("associated_symptoms", []),
-                        "symptom_absent": user_data.get("symptom_absent", [])
-                    },
-                    "disease_severity": disease_severity_res
-                }
+            "diseases_list": diseases,
+            "disease_desc": disease_desc,
+            "human_message": human_message,
+            "current_index": 0,
+            "high_prob_diseases_analysis": [],   # 初始化结果列表
+            "has_symptoms": {
+                "associated_symptoms": user_data.get("associated_symptoms", []),
+                "symptom_absent": user_data.get("symptom_absent", [])
+            },
+            "disease_severity": {}   # 临时占位，将在最后一个疾病分析后更新
+        }
+
+    def _analyze_single_disease_node(self, state: DiseaseAnalysisSubgraphState) -> DiseaseAnalysisSubgraphState:
+        """处理当前索引指向的单个疾病：依次调用7个 LLM 分析节点，返回当前分析结果（但不更新累积列表）"""
+        idx = state["current_index"]
+        disease = state["diseases_list"][idx]
+        disease_name = disease["name"]
+        symptoms = disease["symptoms"]
+        causes = disease["causes"]
+        prob = disease["probability"]
+
+        knowledge_text = (f"疾病名称：{disease_name}\n存在的症状：{symptoms}\n引起原因：{causes}。"
+                          f"{state['disease_desc']}。RAG Chunk：")
+
+        # 顺序执行七个分析节点（每个节点内部调用 LLM）
+        primitive_res = self._run_primitive_concept_node(knowledge_text)
+        severity_res = self._run_disease_severity_node(knowledge_text)
+        course_res = self._run_disease_course_node(knowledge_text)
+        body_res = self._run_human_body_system_node(knowledge_text)
+        mani_res = self._run_manifestation_characteristics_node(knowledge_text)
+        nature_res = self._run_symptom_nature_node(knowledge_text)
+        human_desc = self._run_generate_disease_desc(state["human_message"], disease_name)
+
+        current_analysis = {
+            "disease_name": disease_name,
+            "probability": f"{prob}%",
+            "primitive_concept_symptom": primitive_res,
+            "disease_course": course_res,
+            "human_body_system": body_res,
+            "manifestation_characteristics": mani_res,
+            "symptom_nature": nature_res,
+            "human_desc": human_desc
+        }
+
+        # 更新疾病严重程度（原逻辑：最后一次覆盖，此处暂存）
+        return {"current_analysis": current_analysis, "last_severity": severity_res}
+
+    def _update_results_node(self, state: DiseaseAnalysisSubgraphState) -> DiseaseAnalysisSubgraphState:
+        """将当前分析结果追加到 high_prob_diseases_analysis，并更新 disease_severity 为最后一次调用的结果"""
+        updated_analyses = state.get("high_prob_diseases_analysis", []) + [state["current_analysis"]]
+        return {
+            "high_prob_diseases_analysis": updated_analyses,
+            "disease_severity": state.get("last_severity", {}),
+            "current_index": state["current_index"] + 1
+        }
+
+    def _should_continue(self, state: DiseaseAnalysisSubgraphState) -> str:
+        """判断是否还有下一个疾病需要处理"""
+        if state["current_index"] < len(state["diseases_list"]):
+            return "continue"
+        else:
+            return "end"
+
+    # ---------- 构建子图 ----------
+    def _build_disease_analysis_subgraph(self) -> StateGraph:
+        """构建独立的疾病分析子图，内部包含循环处理每个高概率疾病的流程"""
+        subgraph = StateGraph(DiseaseAnalysisSubgraphState)
+
+        # 添加节点
+        subgraph.add_node("parse_input", self._parse_input_node)
+        subgraph.add_node("analyze_single", self._analyze_single_disease_node)
+        subgraph.add_node("update_results", self._update_results_node)
+
+        # 设置边
+        subgraph.add_edge(START, "parse_input")
+        subgraph.add_edge("parse_input", "analyze_single")
+        subgraph.add_edge("analyze_single", "update_results")
+        # 条件边：根据是否还有疾病决定是循环回到 analyze_single 还是结束
+        subgraph.add_conditional_edges(
+            "update_results",
+            self._should_continue,
+            {
+                "continue": "analyze_single",
+                "end": END
+            }
+        )
+
+        return subgraph.compile()
+
+    # ---------- 主工作流（使用子图）----------
+    def _build_workflow(self):
+        """构建主工作流，其中 loop_over_diseases_node 替换为子图节点"""
+        workflow = StateGraph(SearchClassState)
+
+        # 将子图添加为一个节点（子图的状态是 SearchClassState 的超集，但输入输出字段兼容）
+        disease_subgraph = self._build_disease_analysis_subgraph()
+        workflow.add_node("loop_over_diseases_subgraph", disease_subgraph)
+
+        # 动态知识图谱构建节点（保持不变）
+        workflow.add_node("build_dynamic_knowledge_graph", self._build_dynamic_knowledge_graph)
+
+        # 边连接
+        workflow.add_edge(START, "loop_over_diseases_subgraph")
+        workflow.add_edge("loop_over_diseases_subgraph", "build_dynamic_knowledge_graph")
+        workflow.add_edge("build_dynamic_knowledge_graph", END)
+
+        return workflow.compile()
 
     def _build_dynamic_knowledge_graph(self, state: SearchClassState):
-        """
-            构建动态知识图谱数据
-        :param state:
-        :return:
-        """
+        """构建动态知识图谱（与原逻辑一致）"""
         high_prob_diseases_analysis_list = state.get("high_prob_diseases_analysis", [])
         for high_prob_diseases_analysis in high_prob_diseases_analysis_list:
-            # 构建传入输入
             self.dynamic_knowledge.invoke({
                 "disease_analysis": high_prob_diseases_analysis,
                 "has_symptoms": state.get("has_symptoms", {}),
                 "disease_severity": state.get("disease_severity", {})
             })
         return {}
-
-    def _build_workflow(self):
-        """构建 LangGraph 工作流"""
-        workflow = StateGraph(SearchClassState)
-        # 创建结点
-        workflow.add_node("loop_over_diseases_node", self._loop_over_diseases_node)
-        workflow.add_node("build_dynamic_knowledge_graph", self._build_dynamic_knowledge_graph)
-
-        # 创建边
-        workflow.add_edge(START, "loop_over_diseases_node")
-        workflow.add_edge("loop_over_diseases_node", "build_dynamic_knowledge_graph")
-        workflow.add_edge("build_dynamic_knowledge_graph", END)
-        return workflow.compile()
 
     # ---------- 对外运行接口 ----------
     def run(self, input_data: Union[str, Dict]) -> Dict[str, Any]:
@@ -336,30 +351,21 @@ class DiseaseAnalysisService:
         Returns:
             包含 high_prob_diseases_analysis 列表的字典，每个元素为疾病的详细分析结果
         """
-        # 构造消息
         if isinstance(input_data, dict):
             input_str = json.dumps(input_data, ensure_ascii=False)
         else:
             input_str = input_data
-
         messages = [HumanMessage(content=input_str)]
         result = self.workflow.invoke({"messages": messages})
         return result
 
 
-# ==================== 使用示例 ====================
+# ==================== 使用示例（与原代码相同）====================
 if __name__ == "__main__":
-    # 创建服务实例
     service = DiseaseAnalysisService()
-
-    # 示例输入数据
     user_input = {
         "chief_complaint": "咳嗽，头疼",
-        "present_illness": {
-            "onset_time": "今天早上",
-            "pattern": "",
-            "treatments_received": []
-        },
+        "present_illness": {"onset_time": "今天早上", "pattern": "", "treatments_received": []},
         "associated_symptoms": ["咳嗽", "头疼"],
         "symptom_absent": [],
         "existing_knowledge_supplement": [
@@ -367,15 +373,10 @@ if __name__ == "__main__":
             "{\n  \"疾病名称\": \"慢性咳嗽\",\n  \"疾病存在的症状\": \"哮鸣音, 咽痛\",\n  \"疾病引起原因\": \"1. 鼻部疾病（如鼻炎、鼻窦炎）导致鼻后滴流刺激咳嗽感受器；2. 胃食管反流性咳嗽（胃酸反流刺激气道）\",\n  \"疾病确定概率\": \"75%\"\n}",
             "{\n  \"疾病名称\": \"痰浊头痛\",\n  \"疾病存在的症状\": \"胸闷、清晨或上午头痛、头昏\",\n  \"疾病引起原因\": \"中医病因：饮食不节、嗜酒太过或过食辛辣肥甘导致脾失健运，痰浊中阻，清阳不升，浊阴上蒙。西医病因：可能与血管性头痛、紧张性头痛、颅内疾病等有关。\",\n  \"疾病确定概率\": \"60%\"\n}"
         ],
-        "use_message":["今天早上头疼，有些流鼻涕。无咳嗽"]
+        "use_message": ["今天早上头疼，有些流鼻涕。无咳嗽"]
     }
-
-    # 执行分析
     answer = service.run(user_input)
-
-    # 输出结果
     print("===== 整体症状分类结果 =====")
-    print("\n===== 高概率疾病（>70%）逐个完整分类结果 =====")
     for analysis in answer.get("high_prob_diseases_analysis", []):
         print(f"疾病名称：{analysis['disease_name']} (概率 {analysis['probability']})")
         print(f"  原始概念症状: {analysis['primitive_concept_symptom']}")
