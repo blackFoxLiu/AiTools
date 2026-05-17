@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>智医助手 · 专业医疗对话</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            background: #eef2f5;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+        }
+
+        /* 主容器 */
+        .chat-container {
+            width: 1400px;
+            max-width: 100%;
+            height: 90vh;
+            background: #ffffff;
+            border-radius: 28px;
+            box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.15);
+            display: flex;
+            overflow: hidden;
+            transition: all 0.2s;
+        }
+
+        /* 侧边栏 - 会话列表 */
+        .sidebar {
+            width: 280px;
+            background: #f9fbfd;
+            border-right: 1px solid #e4eaef;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 24px 20px 16px;
+            border-bottom: 1px solid #e9edf2;
+        }
+
+        .sidebar-header h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #1b6b5e, #2b8c76);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: -0.3px;
+        }
+
+        .sidebar-header p {
+            font-size: 0.7rem;
+            color: #6b8598;
+            margin-top: 6px;
+        }
+
+        .new-session-btn {
+            margin: 16px 16px 12px;
+            background: #1b6b5e;
+            border: none;
+            padding: 10px 0;
+            border-radius: 40px;
+            color: white;
+            font-weight: 500;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+
+        .new-session-btn:hover {
+            background: #0f554a;
+            transform: translateY(-1px);
+        }
+
+        .sessions-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 12px 20px;
+        }
+
+        .session-item {
+            background: white;
+            border-radius: 16px;
+            padding: 12px 14px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+
+        .session-item.active {
+            background: #e5f4ef;
+            border-color: #2b8c76;
+            box-shadow: 0 4px 12px rgba(27,107,94,0.12);
+        }
+
+        .session-title {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #1f2e3a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .session-time {
+            font-size: 0.7rem;
+            color: #7f95aa;
+            margin-top: 6px;
+        }
+
+        /* 主聊天区域 */
+        .main-chat {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #ffffff;
+        }
+
+        .chat-header {
+            padding: 18px 28px;
+            background: white;
+            border-bottom: 1px solid #eef2f8;
+        }
+
+        .chat-header h3 {
+            font-weight: 600;
+            font-size: 1.2rem;
+            color: #1f4c66;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-header span {
+            background: #e2f0ed;
+            font-size: 0.7rem;
+            padding: 2px 10px;
+            border-radius: 30px;
+            color: #1b6b5e;
+        }
+
+        .messages-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            background: #fefefe;
+        }
+
+        /* 气泡样式 */
+        .message {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .message.user {
+            align-self: flex-end;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+        }
+
+        .bubble {
+            padding: 12px 18px;
+            border-radius: 22px;
+            line-height: 1.45;
+            font-size: 0.95rem;
+            word-break: break-word;
+            white-space: pre-wrap;
+        }
+
+        .user .bubble {
+            background: #1b6b5e;
+            color: white;
+            border-bottom-right-radius: 6px;
+        }
+
+        .assistant .bubble {
+            background: #f1f5f9;
+            color: #1f2e3a;
+            border-bottom-left-radius: 6px;
+        }
+
+        .timestamp {
+            font-size: 0.7rem;
+            color: #8da3b5;
+            margin-top: 5px;
+            margin-left: 12px;
+        }
+
+        .input-area {
+            padding: 16px 24px 24px;
+            background: white;
+            border-top: 1px solid #ecf1f7;
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .input-area textarea {
+            flex: 1;
+            border: 1px solid #cfdee9;
+            border-radius: 28px;
+            padding: 12px 20px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            resize: none;
+            outline: none;
+            transition: 0.2s;
+            background: #ffffff;
+            max-height: 120px;
+        }
+
+        .input-area textarea:focus {
+            border-color: #2b8c76;
+            box-shadow: 0 0 0 3px rgba(43,140,118,0.15);
+        }
+
+        .input-area button {
+            background: #1b6b5e;
+            border: none;
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            color: white;
+            font-size: 1.3rem;
+            cursor: pointer;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .input-area button:disabled {
+            background: #bcd3cc;
+            cursor: not-allowed;
+        }
+
+        .typing-indicator {
+            background: #eef2f6;
+            border-radius: 20px;
+            padding: 10px 18px;
+            width: fit-content;
+            font-size: 0.85rem;
+            color: #3f627a;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: #eef2f6; }
+        ::-webkit-scrollbar-thumb { background: #bfcfda; border-radius: 10px; }
+    </style>
+</head>
+<body>
+<div class="chat-container">
+    <!-- 左侧会话区 -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2>💊 智医助手</h2>
+            <p>基于知识图谱 · 专业医疗问答</p>
+        </div>
+        <button class="new-session-btn" id="newSessionBtn">➕ 新建对话</button>
+        <div class="sessions-list" id="sessionList">
+            <div style="text-align:center; color:#99b0c0; padding: 24px;">加载会话中...</div>
+        </div>
+        <div style="padding: 16px; font-size:11px; color:#8aa0b0; border-top:1px solid #e4eaef; text-align:center;">
+            🔒 本地存储 · 会话隔离
+        </div>
+    </div>
+
+    <!-- 右侧聊天区域 -->
+    <div class="main-chat">
+        <div class="chat-header">
+            <h3>🏥 智能医疗咨询 <span>AI 辅助决策</span></h3>
+        </div>
+        <div class="messages-area" id="messagesArea">
+            <div class="message assistant">
+                <div class="bubble">您好，我是您的医疗助手。请描述症状、用药疑问或健康问题，我将基于医学知识库为您分析。</div>
+                <div class="timestamp">刚刚</div>
+            </div>
+        </div>
+        <div class="input-area">
+            <textarea id="messageInput" rows="1" placeholder="输入您的健康问题... (Enter发送, Shift+Enter换行)"></textarea>
+            <button id="sendBtn">➤</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ---------- 配置 ----------
+    const API_BASE = '/api';          // 同域下自动指向后端
+    let currentSessionId = null;
+    let sessionsList = [];
+    let isLoading = false;
+
+    // DOM 元素
+    const sessionListDiv = document.getElementById('sessionList');
+    const messagesArea = document.getElementById('messagesArea');
+    const msgInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    // ---------- 辅助函数 ----------
+    function formatTime(isoString) {
+        if (!isoString) return '未知';
+        const date = new Date(isoString);
+        return `${date.getMonth()+1}/${date.getDate()} ${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2,'0')}`;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    function scrollToBottom() {
+        setTimeout(() => {
+            messagesArea.scrollTop = messagesArea.scrollHeight;
+        }, 50);
+    }
+
+    // 渲染会话列表
+    function renderSessions() {
+        if (!sessionsList.length) {
+            sessionListDiv.innerHTML = '<div style="text-align:center; color:#99b0c0; padding: 24px;">暂无会话，点击上方新建</div>';
+            return;
+        }
+        sessionListDiv.innerHTML = sessionsList.map(sess => `
+            <div class="session-item ${currentSessionId === sess.session_id ? 'active' : ''}" data-id="${sess.session_id}">
+                <div class="session-title">${escapeHtml(sess.title || '新对话')}</div>
+                <div class="session-time">📅 ${formatTime(sess.updated_at)}</div>
+            </div>
+        `).join('');
+        // 绑定点击事件
+        document.querySelectorAll('.session-item').forEach(el => {
+            el.addEventListener('click', (e) => {
+                const sid = el.getAttribute('data-id');
+                if (sid && sid !== currentSessionId) {
+                    currentSessionId = sid;
+                    loadMessagesForSession(currentSessionId);
+                    renderSessions();  // 更新高亮
+                }
+            });
+        });
+    }
+
+    // 加载会话列表
+    async function loadSessions() {
+        try {
+            const res = await fetch(`${API_BASE}/sessions`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            sessionsList = Array.isArray(data) ? data : [];
+            sessionsList.sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at));
+            renderSessions();
+
+            if (sessionsList.length > 0 && !currentSessionId) {
+                currentSessionId = sessionsList[0].session_id;
+                await loadMessagesForSession(currentSessionId);
+            } else if (sessionsList.length === 0) {
+                await createNewSession();
+            } else if (currentSessionId) {
+                await loadMessagesForSession(currentSessionId);
+            }
+        } catch (err) {
+            console.error('加载会话失败:', err);
+            sessionListDiv.innerHTML = '<div style="text-align:center; color:#e4746b; padding: 20px;">加载失败，请检查后端服务</div>';
+        }
+    }
+
+    // 新建会话
+    async function createNewSession() {
+        try {
+            const res = await fetch(`${API_BASE}/sessions`, { method: 'POST' });
+            if (!res.ok) throw new Error('创建失败');
+            const data = await res.json();
+            currentSessionId = data.session_id;
+            await loadSessions();  // 刷新列表
+            messagesArea.innerHTML = `
+                <div class="message assistant">
+                    <div class="bubble">新会话已创建。请描述您的医疗需求。</div>
+                    <div class="timestamp">${new Date().toLocaleTimeString()}</div>
+                </div>
+            `;
+        } catch (err) {
+            alert('创建会话失败: ' + err.message);
+        }
+    }
+
+    // 加载某个会话的消息历史
+    async function loadMessagesForSession(sessionId) {
+        if (!sessionId) return;
+        try {
+            const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`);
+            if (!res.ok) throw new Error('加载消息失败');
+            const messages = await res.json();
+            renderMessages(messages);
+        } catch (err) {
+            console.error(err);
+            messagesArea.innerHTML = `<div class="message assistant"><div class="bubble">⚠️ 无法加载历史记录，请刷新重试</div></div>`;
+        }
+    }
+
+    // 渲染消息
+    function renderMessages(messages) {
+        if (!messages || messages.length === 0) {
+            messagesArea.innerHTML = `
+                <div class="message assistant">
+                    <div class="bubble">欢迎使用智医助手，请描述您的健康问题或用药需求。</div>
+                    <div class="timestamp">${new Date().toLocaleTimeString()}</div>
+                </div>
+            `;
+            scrollToBottom();
+            return;
+        }
+        const html = messages.map(msg => {
+            const isUser = msg.role === 'user';
+            return `
+                <div class="message ${isUser ? 'user' : 'assistant'}">
+                    <div class="bubble">${escapeHtml(msg.content)}</div>
+                    <div class="timestamp">${msg.timestamp ? formatTime(msg.timestamp) : new Date().toLocaleTimeString()}</div>
+                </div>
+            `;
+        }).join('');
+        messagesArea.innerHTML = html;
+        scrollToBottom();
+    }
+
+    // 发送消息
+    async function sendMessage() {
+        const userMsg = msgInput.value.trim();
+        if (!userMsg || isLoading || !currentSessionId) {
+            if (!currentSessionId) alert('请等待会话加载或新建会话');
+            return;
+        }
+
+        isLoading = true;
+        sendBtn.disabled = true;
+        msgInput.disabled = true;
+
+        // 添加用户消息UI
+        const userDiv = document.createElement('div');
+        userDiv.className = 'message user';
+        userDiv.innerHTML = `<div class="bubble">${escapeHtml(userMsg)}</div><div class="timestamp">${new Date().toLocaleTimeString()}</div>`;
+        messagesArea.appendChild(userDiv);
+        scrollToBottom();
+        msgInput.value = '';
+
+        // 显示思考中
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'message assistant';
+        loadingDiv.id = 'thinkingIndicator';
+        loadingDiv.innerHTML = `<div class="typing-indicator">🤔 医学顾问正在分析...</div>`;
+        messagesArea.appendChild(loadingDiv);
+        scrollToBottom();
+
+        try {
+            const response = await fetch(`${API_BASE}/sessions/${currentSessionId}/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: userMsg })
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`请求失败 (${response.status}): ${errorText}`);
+            }
+            const data = await response.json();
+            // 移除思考提示
+            const thinking = document.getElementById('thinkingIndicator');
+            if (thinking) thinking.remove();
+
+            const aiDiv = document.createElement('div');
+            aiDiv.className = 'message assistant';
+            aiDiv.innerHTML = `<div class="bubble">${escapeHtml(data.answer)}</div><div class="timestamp">${new Date().toLocaleTimeString()}</div>`;
+            messagesArea.appendChild(aiDiv);
+            scrollToBottom();
+
+            // 刷新侧边栏更新时间
+            await loadSessions();
+        } catch (err) {
+            const thinking = document.getElementById('thinkingIndicator');
+            if (thinking) thinking.remove();
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'message assistant';
+            errorDiv.innerHTML = `<div class="bubble" style="background:#ffe6e5;color:#bd362f;">❌ 服务错误: ${err.message}<br/>请检查后端或稍后重试</div>`;
+            messagesArea.appendChild(errorDiv);
+            scrollToBottom();
+        } finally {
+            isLoading = false;
+            sendBtn.disabled = false;
+            msgInput.disabled = false;
+            msgInput.focus();
+        }
+    }
+
+    // 事件绑定
+    document.getElementById('newSessionBtn').addEventListener('click', async () => {
+        await createNewSession();
+    });
+    sendBtn.addEventListener('click', sendMessage);
+    msgInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    msgInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(100, this.scrollHeight) + 'px';
+    });
+
+    // 启动
+    loadSessions();
+</script>
+</body>
+</html>
