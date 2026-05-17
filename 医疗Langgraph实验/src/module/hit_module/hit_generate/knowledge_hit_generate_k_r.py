@@ -17,6 +17,8 @@
 """
 import json
 import logging
+import os
+import sys
 from functools import lru_cache
 from typing import TypedDict, Any, Dict
 
@@ -24,13 +26,20 @@ from langchain_ollama import ChatOllama
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
-from knowledge_graph_tools import Neo4jQueryTools
-from rag_module import KnowledgeBaseService
-
 # ==================== 日志配置（保留原有方式）====================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+
+# 将项目根目录添加到 Python 的模块搜索路径中
+if root_path not in sys.path:
+    sys.path.append(root_path)
+try:
+    from tools.knowledge_graph_tools import Neo4jQueryTools
+    from tools.rag_module import KnowledgeBaseService   # 需实现 retrieve 方法
+except ImportError:
+    raise RuntimeError(f"导入模块失败")
 
 class DynamicKnowledgeState(TypedDict):
     disease_analysis: Dict[str, Any]
@@ -86,6 +95,8 @@ class KnowledgeGraphUpdateService:
         cypher = f"MATCH (n:basic_symptom {{name: '{name}'}}) RETURN count(n) as total"
         client = Neo4jQueryTools()
         result = client.use_cypher(cypher)
+        if result is None:
+            return False
         return bool(int(result[0]["total"]) > 0)
 
     def create_symptom_node(self, name: str) -> str:
@@ -110,6 +121,8 @@ class KnowledgeGraphUpdateService:
         cypher = f"MATCH (n:disease_analysis {{name: '{name}'}}) RETURN count(n) as total"
         client = Neo4jQueryTools()
         result = client.use_cypher(cypher)
+        if result is None:
+            return False
         return bool(int(result[0]["total"]) > 0)
 
     def create_disease_analysis_node(self, data: Dict[str, Any]) -> str:
@@ -249,10 +262,13 @@ class KnowledgeGraphUpdateService:
         """
             设置 RAG 命中语义设计，症状命中（原函数未完成，保留逻辑不变）
         """
-        chief_complaint_list = state["disease_analysis"]["primitive_concept_symptom"]["chief_complaint_list"]
+        chief_complaint_list = (
+            state.get("disease_analysis", {})
+            .get("primitive_concept_symptom", {})
+            .get("chief_complaint_list", [])
+        )
         rag_rst_list = []
-
-        disease_severity_level = state["disease_severity"]["severity_level"]
+        disease_severity_level = state.get("disease_severity", {}).get("severity_level", "")
         if disease_severity_level:
             rag_rst_list.append(f"疾病严重程度：{disease_severity_level}")
 
@@ -309,7 +325,6 @@ class KnowledgeGraphUpdateService:
         Returns:
             工作流最终状态字典
         """
-        # 确保必要字段存在（原测试数据中的格式）
         if "disease_analysis" not in initial_state or "has_symptoms" not in initial_state:
             raise ValueError("initial_state 必须包含 'disease_analysis' 和 'has_symptoms' 字段")
         return self.app.invoke(initial_state)
