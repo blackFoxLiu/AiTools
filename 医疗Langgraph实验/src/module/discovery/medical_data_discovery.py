@@ -7,45 +7,55 @@ import logging
 from typing import Dict, Any, List, Annotated, TypedDict, Literal
 
 from langchain.agents import create_agent
-from langchain.tools import tool
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage
 from langchain_core.prompts import PromptTemplate
-from langchain_ollama import ChatOllama
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from build_search_db import DiseaseAnalysisService
-from knowledge_graph_tools import Neo4jQueryTools
-from rag_module import KnowledgeBaseService
-
-from common_utils import read_prompt, safe_json_parse
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+import os
+import sys
+# 导入独立子图构建函数
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
+
+# 将项目根目录添加到 Python 的模块搜索路径中
+if root_path not in sys.path:
+    sys.path.append(root_path)
+try:
+    from hit_module.hit_generate.knowledge_hit_generate_graph import DiseaseDataHitGenService
+    from utils.common_utils import read_prompt, safe_json_parse, get_base_chat_model
+    from tools.knowledge_graph_tools import Neo4jQueryTools
+    from tools.rag_module import KnowledgeBaseService
+    from hit_module.hit_search.knowledge_hit_search_graph import DiseaseDataSearchService
+except ImportError:
+    raise RuntimeError(f"导入模块失败")
+
 PROMPT_PATHS = {
-    "sufficiency_decision_sys": "./prompt/discover/prompt_sufficiency_decision_sys.txt",
-    "sufficiency_decision_user": "./prompt/discover/prompt_sufficiency_decision_user.txt",
-    "summary_disease_sys": "./prompt/discover/prompt_summary_disease_sys.txt",
-    "summary_disease_user": "./prompt/discover/prompt_summary_disease_user.txt",
-    "extract_disease_name_sys": "./prompt/discover/prompt_extract_disease_name_sys.txt",
-    "extract_disease_name_user": "./prompt/discover/prompt_extract_disease_name_user.txt",
-    "disease_analysis_sys": "./prompt/discover/prompt_disease_analysis_sys.txt",
-    "disease_analysis_user": "./prompt/discover/prompt_disease_analysis_user.txt",
-    "concomitant_symptoms_sys": "./prompt/discover/prompt_concomitant_symptoms_sys.txt",
-    "concomitant_symptoms_user": "./prompt/discover/prompt_concomitant_symptoms_user.txt",
-    "generate_solution_sys": "./prompt/discover/prompt_generate_solution_sys.txt",
-    "generate_solution_user": "./prompt/discover/prompt_generate_solution_user.txt",
-    "extract_disease_info_sys": "./prompt/discover/prompt_extract_disease_info_sys.txt",
-    "extract_disease_info_user": "./prompt/discover/prompt_extract_disease_info_user.txt",
-    "chief_complaint_sys": "./prompt/discover/prompt_chief_complaint_sys.txt",
-    "chief_complaint_user": "./prompt/discover/prompt_chief_complaint_user.txt",
-    "missing_questions_sys": "./prompt/discover/prompt_missing_questions_sys.txt",
-    "missing_questions_user": "./prompt/discover/prompt_missing_questions_user.txt",
-    "ask_question_by_symptoms_sys": "./prompt/discover/prompt_ask_question_by_symptoms_sys.txt",
-    "ask_question_by_symptoms_user": "./prompt/discover/prompt_ask_question_by_symptoms_user.txt",
+    "sufficiency_decision_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_sufficiency_decision_sys.txt",
+    "sufficiency_decision_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_sufficiency_decision_user.txt",
+    "summary_disease_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_summary_disease_sys.txt",
+    "summary_disease_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_summary_disease_user.txt",
+    "extract_disease_name_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_extract_disease_name_sys.txt",
+    "extract_disease_name_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_extract_disease_name_user.txt",
+    "disease_analysis_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_disease_analysis_sys.txt",
+    "disease_analysis_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_disease_analysis_user.txt",
+    "concomitant_symptoms_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_concomitant_symptoms_sys.txt",
+    "concomitant_symptoms_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_concomitant_symptoms_user.txt",
+    "generate_solution_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_generate_solution_sys.txt",
+    "generate_solution_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_generate_solution_user.txt",
+    "extract_disease_info_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_extract_disease_info_sys.txt",
+    "extract_disease_info_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_extract_disease_info_user.txt",
+    "chief_complaint_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_chief_complaint_sys.txt",
+    "chief_complaint_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_chief_complaint_user.txt",
+    "missing_questions_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_missing_questions_sys.txt",
+    "missing_questions_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_missing_questions_user.txt",
+    "ask_question_by_symptoms_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_ask_question_by_symptoms_sys.txt",
+    "ask_question_by_symptoms_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_ask_question_by_symptoms_user.txt",
+
 }
 
 # 现病诱因 (TypedDict 版本)
@@ -59,13 +69,14 @@ class PresentIllness(TypedDict, total=False):
 class MedicalInquiryState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     # 核心问询字段
-    chief_complaint: str  # 主诉：喊着最主要痛苦/问题
+    chief_complaint: List[str]  # 主诉：喊着最主要痛苦/问题
     present_illness: PresentIllness
     associated_symptoms: List[str]
     symptom_absent: List[str]
     existing_knowledge_supplement: Dict[str, Any]  # 当信息不充足时，使用当前数据信息，查询可能存在的病症，提供参考，从RAG检索到的医学知识
     missing_return_messages: str
     # 补充信息
+    is_first_search_hit: bool  # stepA 判断结果：当前信息是否足够
     is_sufficient: bool  # stepA 判断结果：当前信息是否足够
     missing_info: List[str]  # 缺失的病症信息项（如“疼痛部位”“持续时间”）
     solution: str  # 生成的解决方案（诊断建议/下一步行动）
@@ -112,35 +123,18 @@ class SolutionOutput(BaseModel):
 
 class MedicalDataDiscovery:
 
-    def get_base_chat_model(self):
-        """
-        获取一个ollama会话模型
-        :return:
-        """
-        return ChatOllama(
-            model="qwen3:8b",
-            base_url="http://127.0.0.1:11434",
-            temperature=0.0
-        )
-
     def __init__(self):
+        # TODO 重写为单例模式
         # 初始化模型
-        self.ollama_model = self.get_base_chat_model()
+        self.ollama_model = get_base_chat_model()
         # RAG 查询工具
         self.rag_service = KnowledgeBaseService()
         # 知识图谱查询工具
         self.knowledge_query_tools = Neo4jQueryTools()
         # 构建查询命中工具
-        self.search_db_client = DiseaseAnalysisService()
-
-    # 创建一个 Agent
-    def get_llm_agent(self, sys_prompt: str, tools):
-        agent = create_agent(
-            model=self.ollama_model,
-            tools=tools or [],
-            system_prompt=sys_prompt
-        )
-        return agent
+        self.analysis_db_client = DiseaseDataHitGenService()
+        # 构建查询命中工具
+        self.search_hit_client = DiseaseDataSearchService()
 
     def get_model_chief_complaint(self, state: MedicalInquiryState) -> Dict[str, Any]:
         # ----- 日志 -----
@@ -158,7 +152,8 @@ class MedicalDataDiscovery:
         user_messages = [HumanMessage(content=chief_complaint_user)]
 
         model_rsp_message = self.ollama_model.invoke(system_messages + user_messages)
-        chief = model_rsp_message.content
+        chief = safe_json_parse(model_rsp_message.content)
+
         logger.info(f"  提取的主诉: {chief}")
         return {"chief_complaint": chief}
 
@@ -283,13 +278,9 @@ class MedicalDataDiscovery:
             "missing_info": decision.missing_info,
         }
 
-    # ===== 新增节点 2：RAG 知识增强 =====
-    def enhance_with_rag(self, state: MedicalInquiryState) -> Dict[str, Any]:
-        """
-        使用当前已提取的症状信息查询医学知识库，将结果存入 existing_knowledge_supplement。
-        此节点可在判断充分性之前或之后调用，增强后续节点的知识背景。
-        """
-        logger.info("[节点] enhance_with_rag - 查询RAG知识库")
+    @staticmethod
+    def get_disease_structure_info(state: MedicalInquiryState) -> Dict[str, Any]:
+        """ 根据现状信息获取疾病结构信息，并查询RAG """
         chief = state.get("chief_complaint", "")
         present_illness = state.get("present_illness", {})
         associated = state.get("associated_symptoms", [])
@@ -308,10 +299,20 @@ class MedicalDataDiscovery:
         if symptom_absent:
             query_parts.append(f"不存在症状：{', '.join(symptom_absent)}")
 
-        query_str = "，".join(query_parts)
+        return "，".join(query_parts)
+
+    # ===== 新增节点 2：RAG 知识增强 =====
+    def enhance_with_rag(self, state: MedicalInquiryState, rag_top_k=5) -> Dict[str, Any]:
+        """
+        使用当前已提取的症状信息查询医学知识库，将结果存入 existing_knowledge_supplement。
+        此节点可在判断充分性之前或之后调用，增强后续节点的知识背景。
+        """
+        logger.info("[节点] enhance_with_rag - 查询RAG知识库")
+
+        query_str = self.get_disease_structure_info(state)
         logger.info("医疗信息充分，RAG检索问题："+query_str)
         # 调用 RAG 服务
-        results = self.rag_service.query(query_str, top_k=5)  # 返回列表
+        results = self.rag_service.query(query_str, top_k=rag_top_k)  # 返回列表
 
         context_str = ""
         if results:
@@ -333,10 +334,10 @@ class MedicalDataDiscovery:
 
         model_rsp_summary_disease_info = self.ollama_model.invoke(disease_analysis_sys_messages + disease_analysis_user_messages)
 
-        json_existing_knowledge_supplement = safe_json_parse(model_rsp_summary_disease_info.content)
-        json_existing_knowledge_supplement["疾病确定概率"] = "80%"
+        json_summary_disease_info = safe_json_parse(model_rsp_summary_disease_info.content)
+        json_summary_disease_info["疾病确定概率"] = "80%"
         # 不改变任何状态，后续会由 generate_missing_questions 生成问题
-        return {"existing_knowledge_supplement": [json_existing_knowledge_supplement]}
+        return {"existing_knowledge_supplement": [json_summary_disease_info]}
 
     # ===== 新增节点 3：生成解决方案 =====
     def generate_solution(self, state: MedicalInquiryState) -> Dict[str, Any]:
@@ -376,6 +377,36 @@ class MedicalDataDiscovery:
         logger.info(f"  生成的解决方案:\n{solution_text}")
         return {"solution": solution_text}
 
+    def search_hit_first_node(self, state: MedicalInquiryState) -> Dict[str, Any]:
+        """
+        查询结点首次命中设计逻辑
+        :param state:
+        :return:
+        """
+        # 设置生成记忆
+        use_messages = list()
+        state_messages = state.get("messages", [])
+        for message in state_messages:
+            if message.content:
+                use_messages.append(message.content)
+
+        existing_knowledge_supp_list = state.get("existing_knowledge_supplement", [])
+        if len(existing_knowledge_supp_list) == 0:
+            existing_knowledge_supp_list = self.enhance_with_rag(state, rag_top_k=1)
+
+        user_input = {
+            "chief_complaint": state.get("chief_complaint", ""),
+            "present_illness": state.get("present_illness", {}),
+            "associated_symptoms": state.get("associated_symptoms", []),
+            "symptom_absent": state.get("symptom_absent", []),
+            "existing_knowledge_supplement": existing_knowledge_supp_list,
+            "use_message": use_messages
+        }
+        answer = self.search_hit_client.run(user_input)
+
+        logger.info(f"生成的问题:\n{answer}")
+        return {"solution": answer}
+
     # ===== 新增节点 4：生成缺失信息问题 =====
     def generate_missing_questions(self, state: MedicalInquiryState) -> Dict[str, Any]:
         """
@@ -383,7 +414,7 @@ class MedicalDataDiscovery:
         返回的 messages 将通过 add_messages 自动合并。
         """
         logger.info("[节点] generate_missing_questions - 生成追问问题")
-        missing = state.get("missing_info", [])
+        missing = state.get("missing_info", {})
         logger.info(f"  缺失信息列表: {missing}")
         if not missing:
             logger.info("  无缺失信息，返回感谢语")
@@ -437,6 +468,14 @@ class MedicalDataDiscovery:
         logger.info(f"\n[路由] recheck_sufficiency → {choice}")
         return choice
 
+    @staticmethod
+    def route_search_hit(state: MedicalInquiryState) -> Literal["search_hit_first_node", "classify_sufficiency_node"]:
+        """条件边：根据是否首次命中选择节点"""
+        # 注意：state.get("is_first_search_hit", False) 默认 False，但初始状态已设为 True
+        choice = "search_hit_first_node" if state.get("is_first_search_hit", False) else "classify_sufficiency_node"
+        logger.info(f"\n[路由] concomitant_symptoms_node → {choice}")
+        return choice
+
     def rag_query(self, query, top_k=3):
         """ 封装一个RAG知识查询模块 """
         return self.rag_service.query(query, top_k=top_k)  # 返回列表
@@ -459,7 +498,6 @@ class MedicalDataDiscovery:
         ask_question_by_symptoms_sys_messages = [SystemMessage(content=ask_question_by_symptoms_sys)]
         ask_question_by_symptoms_user_messages = [HumanMessage(content=ask_question_by_symptoms_user)]
 
-        # 修改：messages 必须是列表
         model_rsp_message = self.ollama_model.invoke(ask_question_by_symptoms_sys_messages+ ask_question_by_symptoms_user_messages)
 
         query = model_rsp_message.content
@@ -521,7 +559,7 @@ class MedicalDataDiscovery:
                 use_messages.append(message.content)
 
         # 执行分析
-        build_search_state = self.search_db_client.run({
+        build_search_state = self.analysis_db_client.run({
             "chief_complaint": state.get("chief_complaint", ""),
             "present_illness": state.get("present_illness", {}),
             "associated_symptoms": state.get("associated_symptoms", []),
@@ -553,12 +591,22 @@ class MedicalDataDiscovery:
         graph_builder.add_node("extract_missing_info_node", self.extract_missing_info_node)  # 替换 lambda
         graph_builder.add_node("recheck_sufficiency_node", self.recheck_sufficiency)
         graph_builder.add_node("generate_missing_questions_node", self.generate_missing_questions)
+        graph_builder.add_node("search_hit_first_node", self.search_hit_first_node)
 
         # 设置边
         graph_builder.add_edge(START, "chief_complaint_node")
         graph_builder.add_edge("chief_complaint_node", "present_illness_node")
         graph_builder.add_edge("present_illness_node", "concomitant_symptoms_node")
-        graph_builder.add_edge("concomitant_symptoms_node", "classify_sufficiency_node")
+
+        # 条件分支：首次使用知识图谱+Rag查询命中逻辑
+        graph_builder.add_conditional_edges(
+            "concomitant_symptoms_node",
+            self.route_search_hit,
+            {
+                "search_hit_first_node": "search_hit_first_node",
+                "classify_sufficiency_node": "classify_sufficiency_node"
+            }
+        )
 
         # 条件分支：信息充分性判断后的路由
         graph_builder.add_conditional_edges(
@@ -577,6 +625,9 @@ class MedicalDataDiscovery:
 
         # 信息不充分时，先进行缺失信息提取（占位），然后重新判断
         graph_builder.add_edge("extract_missing_info_node", "recheck_sufficiency_node")
+
+        # 查询命中逻辑
+        graph_builder.add_edge("search_hit_first_node", END)
 
         # 重新判断后的路由
         graph_builder.add_conditional_edges(
@@ -607,6 +658,7 @@ class MedicalDataDiscovery:
             "symptom_absent": discovery_data.get("symptom_absent", []),
             "existing_knowledge_supplement": discovery_data.get("existing_knowledge_supplement", []),
             "is_sufficient": False,
+            "is_first_search_hit": True,
             "missing_info": [],
             "solution": "",
             "need_more_info": False
