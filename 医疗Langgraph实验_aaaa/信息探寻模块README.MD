@@ -223,14 +223,8 @@ ChatOllama(
 5. **获取最终状态**：返回完整 `MedicalInquiryState`，其中 `solution` 字段包含给用户的回复，`messages` 字段包含完整对话历史。
 
 ## 10. 注意事项
-
-- **提示词文件必须存在**：所有 `PROMPT_PATHS` 中的路径均需包含有效的 `.txt` 文件，否则会引发文件读取异常。  
-- **外部服务依赖**：需要确保 Ollama 服务运行在 `http://127.0.0.1:11434`，且已下载 `qwen3:8b` 模型；Neo4j、RAG 向量库、`DiseaseDataSearchService` 等服务需正确配置并可用。  
-- **结构化输出兼容性**：LLM 的 `with_structured_output` 要求模型支持 JSON 模式或函数调用（`qwen3:8b` 通常支持，但若遇到解析失败，代码中使用了 `safe_json_parse` 做容错）。  
-- **首次命中标志**：初始状态 `is_first_search_hit=True`，若不需要此快速通道，可在调用前手动设置为 `False`。  
-- **无限循环防护**：代码中预留了 `iteration_count` 字段，但当前路由未做严格检查；若在图外循环调用，需自行控制最大轮数。  
 - **生产环境建议**：  
   - 使用更稳定的 LLM API（如 OpenAI、Azure）替换本地 Ollama。  
   - 集成 LangGraph 检查点实现会话持久化。  
-  - 为 RAG 检索添加缓存机制。  
+  - 为 RAG 检索添加缓存机制。【未完成】
   - 增加敏感信息过滤和医疗免责声明强化。

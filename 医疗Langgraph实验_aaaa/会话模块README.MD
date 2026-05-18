@@ -124,8 +124,8 @@
 
 ## 10. 注意事项
 
-- 当前实现中，`MedicalDataDiscovery` 和 `Neo4jQueryTools` 为**外部依赖**，需确保其正确初始化。  
-- **提示词文件需按指定路径放置**，否则会抛出文件读取异常。  
-- 两种持久化方案**不可同时使用**（构造函数会检查并抛出 `ValueError`）。  
-- 长期方案下，`SessionStore.list_sessions()` 不可用，交互式界面的历史会话加载功能会受限，但可通过其他方式管理 `thread_id`。
+- 当前实现中，`MedicalDataDiscovery` 和 `Neo4jQueryTools` 为**外部依赖**，需确保其正确初始化。【已完成】
+- **提示词文件需按指定路径放置**，否则会抛出文件读取异常。【已完成】
+- 两种持久化方案**不可同时使用**（构造函数会检查并抛出 `ValueError`）。【已完成】
+- 长期方案下，`SessionStore.list_sessions()` 不可用，交互式界面的历史会话加载功能会受限，但可通过其他方式管理 `thread_id`。【已完成】
 
