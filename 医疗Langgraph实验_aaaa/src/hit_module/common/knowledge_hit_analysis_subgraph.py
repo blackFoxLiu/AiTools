@@ -14,34 +14,40 @@
 
 本模块无需依赖外部项目文件（common_utils、build_dynamic_knowledge 等），已内置辅助函数。
 """
-
 import json
 import logging
+import os
 import re
+import sys
 from typing import List, Dict, Any, Optional, Annotated
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
 from langchain_core.prompts import PromptTemplate
+from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END, add_messages
 from typing_extensions import TypedDict
 
-# ---------- 日志配置 ----------
+# ---------- 路径设置 ----------
+# 当前文件位于 src/discovery/ 或 src/hit_module/common/ 等二级目录下
+# 向上两级到达项目根目录（即 src/ 的父目录）
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+SRC_PATH = os.path.join(PROJECT_ROOT, "src")
+if SRC_PATH not in sys.path:
+    sys.path.insert(0, SRC_PATH)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+# ---------- 导入项目内部模块 ----------
+try:
+    from src.utils.common_utils import get_base_chat_model, read_prompt, safe_json_parse
+    from config.default_config import config as default_config
+    from config.hit_config import config as hit_config
+except ImportError as e:
+    raise RuntimeError(f"导入模块失败: {e}") from e
+
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-import os
-import sys
-# 导入独立子图构建函数
-root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-
-# 将项目根目录添加到 Python 的模块搜索路径中
-if root_path not in sys.path:
-    sys.path.append(root_path)
-try:
-    from utils.common_utils import get_base_chat_model, read_prompt, safe_json_parse
-except ImportError:
-    raise RuntimeError(f"导入模块失败")
-
 
 # ========== 1. 状态定义 ==========
 class DiseaseAnalysisSubgraphState(TypedDict):
@@ -69,33 +75,19 @@ class DiseaseAnalysisSubgraphBuilder:
     - 结果累积与迭代控制
     """
 
-    DEFAULT_PROMPT_PATHS = {
-        "primitive_concept_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_primitive_concept_sys.txt",
-        "primitive_concept_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_primitive_concept_user.txt",
-        "disease_course_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_tp_disease_course_sys.txt",
-        "disease_course_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_tp_disease_course_user.txt",
-        "human_body_system_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_tp_human_body_system_sys.txt",
-        "human_body_system_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_tp_human_body_system_user.txt",
-        "manifestation_characteristics_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_tp_manifestation_characteristics_sys.txt",
-        "manifestation_characteristics_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_tp_manifestation_characteristics_user.txt",
-        "symptom_nature_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_tp_symptom_nature_sys.txt",
-        "symptom_nature_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_tp_symptom_nature_user.txt",
-        "disease_severity_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_disease_severity_sys.txt",
-        "disease_severity_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/prompt_disease_severity_user.txt",
-    }
-
-
-    PROBABILITY_THRESHOLD = 70
-
     def __init__(
         self,
         prompt_paths: Optional[Dict[str, str]] = None,
-        probability_threshold: int = 70
+        probability_threshold: int = hit_config.PROBABILITY_THRESHOLD
     ):
-        self.prompt_paths = prompt_paths or self.DEFAULT_PROMPT_PATHS
+        self.prompt_paths = prompt_paths or default_config.PROMPT_PATHS
         self.probability_threshold = probability_threshold
-        # TODO 重写为单例模式
-        self._chat_model = get_base_chat_model()
+
+        self._chat_model = ChatOllama(
+            model=default_config.OLLAMA_CONFIG["model"],
+            base_url=default_config.OLLAMA_CONFIG["base_url"],
+            temperature=default_config.OLLAMA_CONFIG["temperature"]
+        )
 
     # ---------- 原子 LLM 调用节点 ----------
     def _run_generate_disease_desc(self, chat_messages: List[str], disease_name: str) -> str:

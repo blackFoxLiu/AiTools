@@ -30,16 +30,19 @@ from langgraph.graph import StateGraph
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
 
 # 将项目根目录添加到 Python 的模块搜索路径中
 if root_path not in sys.path:
     sys.path.append(root_path)
 try:
-    from tools.knowledge_graph_tools import Neo4jQueryTools
-    from tools.rag_module import KnowledgeBaseService   # 需实现 retrieve 方法
+    from src.tools.knowledge_graph_tools import Neo4jQueryTools
+    from src.tools.rag_module import KnowledgeBaseService
+    from config.hit_config import config as hit_config
+    from config.default_config import config as default_config
 except ImportError:
     raise RuntimeError(f"导入模块失败")
+
 
 class DynamicKnowledgeState(TypedDict):
     disease_analysis: Dict[str, Any]
@@ -57,13 +60,6 @@ class KnowledgeGraphUpdateService:
     - 症状->疾病关系（有向，权重累加 1）
     """
 
-    # Ollama 配置（原有全局配置）
-    OLLAMA_CONFIG = {
-        "model": "qwen3:8b",
-        "base_url": "http://127.0.0.1:11434",
-        "temperature": 0.0
-    }
-
     # 关系权重步长
     SYMPTOM_SYMPTOM_WEIGHT_STEP = 0.5
     SYMPTOM_DISEASE_WEIGHT_STEP = 1
@@ -75,17 +71,17 @@ class KnowledgeGraphUpdateService:
         # 构建并编译工作流
         self.app = self._build_workflow()
         self.rag_service = KnowledgeBaseService(
-            collection_name="search_hit",
-            persist_directory="./search_hit"
+            collection_name=hit_config.COLLECTION_NAME,
+            persist_directory=hit_config.PERSIST_DIRCTORY
         )
 
     @lru_cache(maxsize=1)
     def _get_base_chat_model(self) -> ChatOllama:
         """获取 Ollama 模型实例（缓存）"""
         return ChatOllama(
-            model=self.OLLAMA_CONFIG["model"],
-            base_url=self.OLLAMA_CONFIG["base_url"],
-            temperature=self.OLLAMA_CONFIG["temperature"]
+            model=default_config.OLLAMA_CONFIG["model"],
+            base_url=default_config.OLLAMA_CONFIG["base_url"],
+            temperature=default_config.OLLAMA_CONFIG["temperature"]
         )
 
     # ---------- 原有工具函数（封装为实例方法）----------

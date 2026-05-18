@@ -22,6 +22,10 @@ try:
 except ImportError:
     raise RuntimeError(f"导入模块失败")
 
+# ==================== 日志配置（保留原有方式）====================
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 class SearchClassState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     high_prob_diseases_analysis: List[Dict[str, Any]]
