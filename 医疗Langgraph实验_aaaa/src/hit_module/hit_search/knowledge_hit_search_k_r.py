@@ -63,11 +63,8 @@ class KnowledgeGraphQueryService:
     """
 
     def __init__(self):
-        # TODO 重写为单例模式
         self._llm = self._get_base_chat_model()
-        # TODO 重写为单例模式
         self.neo4j = Neo4jQueryTools()
-        # TODO 重写为单例模式
         self.rag_service = KnowledgeBaseService(
             collection_name=hit_config.COLLECTION_NAME,
             persist_directory=hit_config.PERSIST_DIRCTORY

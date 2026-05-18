@@ -29,12 +29,11 @@ try:
     from config.default_config import config
     from src.hit_module.hit_generate.knowledge_hit_generate_graph import DiseaseDataHitGenService
     from src.hit_module.hit_search.knowledge_hit_search_graph import DiseaseDataSearchService
-    from src.hit_module.hit_search.knowledge_hit_search_k_r import KnowledgeGraphQueryService
 except ImportError:
     raise RuntimeError(f"导入模块失败")
 
 
-# ========== 1. ChatOllama 单例 ==========
+# ========== ChatOllama 单例 ==========
 _ollama_instance = None
 def get_base_chat_model():
     global _ollama_instance
@@ -47,7 +46,7 @@ def get_base_chat_model():
     return _ollama_instance
 
 
-# ========== 2. HuggingFaceEmbeddings 单例 ==========
+# ========== HuggingFaceEmbeddings 单例 ==========
 _hf_embedding_instance = None
 def get_hf_embedding():
     global _hf_embedding_instance
@@ -60,7 +59,7 @@ def get_hf_embedding():
     return _hf_embedding_instance
 
 
-# ========== 3. BGEM3FlagModel 单例 ==========
+# ========== BGEM3FlagModel 单例 ==========
 _bge_m3_instance = None
 def get_bge_m3_model():
     global _bge_m3_instance
@@ -72,16 +71,7 @@ def get_bge_m3_model():
     return _bge_m3_instance
 
 
-# ========== 4. KnowledgeGraphQueryService 单例 ==========
-_knowledge_graph_service = None
-def get_knowledge_graph_service():
-    global _knowledge_graph_service
-    if _knowledge_graph_service is None:
-        _knowledge_graph_service = KnowledgeGraphQueryService()
-    return _knowledge_graph_service
-
-
-# ========== 5. Neo4jQueryTools 单例 ==========
+# ========== Neo4jQueryTools 单例 ==========
 _neo4j_tools = None
 def get_neo4j_tools():
     global _neo4j_tools
@@ -90,7 +80,7 @@ def get_neo4j_tools():
     return _neo4j_tools
 
 
-# ========== 6. KnowledgeBaseService 单例（RAG向量库） ==========
+# ========== KnowledgeBaseService 单例（RAG向量库） ==========
 _kb_service = None
 def get_knowledge_base_service():
     global _kb_service
@@ -106,7 +96,7 @@ def get_knowledge_base_service():
     return _kb_service
 
 
-# ========== 7. DiseaseDataHitGenService 单例 ==========
+# ========== DiseaseDataHitGenService 单例 ==========
 _disease_hit_gen = None
 def get_disease_hit_gen_service():
     global _disease_hit_gen
@@ -139,10 +129,6 @@ class ServiceContainer:
     @property
     def bge_m3(self):
         return get_bge_m3_model()
-
-    @property
-    def knowledge_graph(self):
-        return get_knowledge_graph_service()
 
     @property
     def neo4j(self):

@@ -52,7 +52,6 @@ class DiseaseDataSearchService:
     ):
         self.prompt_paths = prompt_paths or config.PROMPT_PATHS
         self.probability_threshold = probability_threshold
-        # TODO 重写为单例模式
         self.search_data_service = KnowledgeGraphQueryService()
 
         # 主工作流
@@ -63,7 +62,6 @@ class DiseaseDataSearchService:
         workflow = StateGraph(SearchClassState)
 
         # 创建并添加独立疾病分析子图
-        # TODO 单例模式
         disease_subgraph = create_disease_analysis_subgraph(
             prompt_paths=self.prompt_paths,
             probability_threshold=self.probability_threshold
