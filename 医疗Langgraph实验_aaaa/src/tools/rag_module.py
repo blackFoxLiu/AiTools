@@ -5,39 +5,29 @@
 
 import hashlib
 import os
-import warnings
+import sys
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 import logger
 import numpy as np
 import torch
+from FlagEmbedding import BGEM3FlagModel
 from langchain_chroma import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from FlagEmbedding import BGEM3FlagModel
-
 
 # ==================== 配置 ====================
-class Config:
-    persist_directory = "./chroma_db"
-    collection_name = "knowledge_base"
-    md5_path = "./output/uploaded_md5.txt"
-    chunk_size = 800
-    chunk_overlap = 50
-    separators = ["\n\n"] # , "。", "！", "？", "；", " ", "", "\n"
-    max_split_char_number = 800
+# 导入独立子图构建函数
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 
-    # 嵌入模型配置
-    coarse_model_path = "D:/endedingModel/bge-base-zh-v1___5"   # 粗排模型
-    fine_model_path = "D:/endedingModel/bge-m3"  # 精排模型（BGE-M3）
-    use_gpu = True                     # 是否使用GPU（BGE-M3建议开启）
-    rerank_ratio = 2                   # 精排时粗排召回的倍数：最终返回 top_k，粗排召回 top_k * rerank_ratio
-    fine_weight = 1.0                  # 精排分数权重（可保留为1）
-    coarse_weight = 0.0                # 粗排分数权重（设为0则完全使用精排分数）
-
-
-config = Config()
+# 将项目根目录添加到 Python 的模块搜索路径中
+if root_path not in sys.path:
+    sys.path.append(root_path)
+try:
+    from config.rag_common_config import config as rag_common_config
+except ImportError:
+    raise RuntimeError(f"导入模块失败")
 
 # ==================== MD5 辅助函数（保持不变） ====================
 def get_string_md5(input_str: str, encoding='utf-8') -> str:
@@ -47,42 +37,44 @@ def get_string_md5(input_str: str, encoding='utf-8') -> str:
     return md5_obj.hexdigest()
 
 def check_md5(md5_str: str) -> bool:
-    if not os.path.exists(config.md5_path):
-        open(config.md5_path, 'w', encoding='utf-8').close()
+    if not os.path.exists(rag_common_config.md5_path):
+        directory = os.path.dirname(rag_common_config.md5_path)
+        os.makedirs(directory, exist_ok=True)
+        open(rag_common_config.md5_path, 'w', encoding='utf-8').close()
         return False
-    with open(config.md5_path, 'r', encoding='utf-8') as f:
+    with open(rag_common_config.md5_path, 'r', encoding='utf-8') as f:
         for line in f:
             if line.strip() == md5_str:
                 return True
     return False
 
 def save_md5(md5_str: str):
-    with open(config.md5_path, 'a', encoding='utf-8') as f:
+    with open(rag_common_config.md5_path, 'a', encoding='utf-8') as f:
         f.write(md5_str + '\n')
 
 def remove_md5(md5_str: str):
-    if not os.path.exists(config.md5_path):
+    if not os.path.exists(rag_common_config.md5_path):
         return
-    lines = open(config.md5_path, 'r', encoding='utf-8').readlines()
-    with open(config.md5_path, 'w', encoding='utf-8') as f:
+
+    lines = open(rag_common_config.md5_path, 'r', encoding='utf-8').readlines()
+    with open(rag_common_config.md5_path, 'w', encoding='utf-8') as f:
         for line in lines:
             if line.strip() != md5_str:
                 f.write(line)
 
-
 # ==================== 知识库服务类（优化版：粗排+精排） ====================
 class KnowledgeBaseService:
     def __init__(self, collection_name: str = None, persist_directory: str = None):
-        # 使用传入的参数，若未传则使用 config 中的默认值
-        self.collection_name = collection_name or config.collection_name
-        self.persist_directory = persist_directory or config.persist_directory
+        # 使用传入的参数，若未传则使用 rag_common_config 中的默认值
+        self.collection_name = collection_name or rag_common_config.collection_name
+        self.persist_directory = persist_directory or rag_common_config.persist_directory
 
         os.makedirs(self.persist_directory, exist_ok=True)
 
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # 1. 粗排模型（保持不变）
         self.coarse_embedding = HuggingFaceEmbeddings(
-            model_name=config.coarse_model_path,
+            model_name=rag_common_config.coarse_model_path,
             model_kwargs={'device': device},
             encode_kwargs={'normalize_embeddings': True}
         )
@@ -91,8 +83,8 @@ class KnowledgeBaseService:
         self.fine_model = None
         try:
             self.fine_model = BGEM3FlagModel(
-                config.fine_model_path,
-                use_fp16=config.use_gpu
+                rag_common_config.fine_model_path,
+                use_fp16=rag_common_config.use_gpu
             )
             print("[信息] 精排模型 BGE-M3 加载成功")
         except Exception as e:
@@ -107,9 +99,9 @@ class KnowledgeBaseService:
 
         # 4. 文本分割器（保持不变）
         self.spliter = RecursiveCharacterTextSplitter(
-            chunk_size=config.chunk_size,
-            chunk_overlap=config.chunk_overlap,
-            separators=config.separators,
+            chunk_size=rag_common_config.chunk_size,
+            chunk_overlap=rag_common_config.chunk_overlap,
+            separators=rag_common_config.separators,
             length_function=len,
         )
 
@@ -120,7 +112,7 @@ class KnowledgeBaseService:
             return "[跳过] 内容已经存在知识库中"
 
         # 文本切分
-        if len(data) > config.max_split_char_number:
+        if len(data) > rag_common_config.max_split_char_number:
             chunks = self.spliter.split_text(data)
         else:
             chunks = [data]
@@ -206,7 +198,7 @@ class KnowledgeBaseService:
             return []
 
         # 阶段1：粗排召回
-        candidate_k = top_k * config.rerank_ratio
+        candidate_k = top_k * rag_common_config.rerank_ratio
         # 获取查询向量（粗排）
         query_vector = self.coarse_embedding.embed_query(query_text)
         native_collection = self.chroma._collection
