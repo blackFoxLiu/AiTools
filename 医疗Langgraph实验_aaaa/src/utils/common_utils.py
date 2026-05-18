@@ -7,6 +7,19 @@ from typing import Optional, Dict
 
 from langchain_ollama import ChatOllama
 
+import os
+import sys
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))  # 根据实际文件位置调整层级
+SRC_PATH = os.path.join(PROJECT_ROOT, "src")
+if SRC_PATH not in sys.path:
+    sys.path.insert(0, SRC_PATH)
+
+try:
+    from utils.json_model_tools import safe_json_by_model
+except ImportError:
+    raise RuntimeError(f"导入模块失败")
+
+
 
 # 获取日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -52,7 +65,7 @@ def safe_json_parse(json_str: str) -> Optional[Dict]:
     except json.JSONDecodeError:
         # 尝试修复常见错误：将单引号替换为双引号
         try:
-            fixed = cleaned.replace("'", '"')
+            fixed = safe_json_by_model(cleaned.replace("'", '"'))
             return json.loads(fixed)
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析失败：{e}\n内容：{cleaned[:200]}")
