@@ -1,36 +1,51 @@
+import json
+import logging
 import operator
+import os
+import sys
 import uuid
-from typing import List, Any, Annotated
+from typing import List, Any, Annotated, Dict, Optional
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.prompts import PromptTemplate
+from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END, add_messages
 from typing_extensions import TypedDict
 
-from MedicalDataDiscovery import MedicalDataDiscovery
-from common_utils import *
-from knowledge_graph_tools import Neo4jQueryTools
-# 导入存储模块
-from session_store import SessionStore
+# 导入独立子图构建函数
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
+
+# 将项目根目录添加到 Python 的模块搜索路径中
+if root_path not in sys.path:
+    sys.path.append(root_path)
+try:
+    from config.default_config import config as default_config
+except ImportError:
+    raise RuntimeError(f"导入模块失败")
+
+# ---------- 路径设置 ----------
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SRC_PATH = os.path.join(PROJECT_ROOT, "src")
+if SRC_PATH not in sys.path:
+    sys.path.insert(0, SRC_PATH)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+# ---------- 导入项目内部模块 ----------
+from discovery.medical_data_discovery import MedicalDataDiscovery
+from tools.knowledge_graph_tools import Neo4jQueryTools
+from tools.session_store import SessionStore
+from utils.common_utils import read_prompt, get_base_chat_model
 
 # ==================== 日志配置 ====================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-PROMPT_PATHS = {
-    "intent_sys": "./prompt/prompt_medical_intent_info_sys.txt",
-    "intent_user": "./prompt/prompt_medical_intent_info_user.txt",
-    "chat_intent_choice_sys": "./prompt/chat/prompt_chat_intent_choice_sys.txt",
-    "chat_intent_choice_user": "./prompt/chat/prompt_chat_intent_choice_user.txt",
-    "medication_keyword_sys": "./prompt/chat/prompt_medication_keyword_sys.txt",
-    "medication_keyword_user": "./prompt/chat/prompt_medication_keyword_user.txt",
-    "medical_chat_answer_sys": "./prompt/chat/prompt_medical_chat_answer_sys.txt",
-    "medical_chat_answer_user": "./prompt/chat/prompt_medical_chat_answer_user.txt",
-}
-
 # ==================== Graph state（使用纯字典存储意图）====================
 class MedicalChatState(TypedDict):
-    """会话状态结构，intentions 为纯字典列表，每个字典包含 main_intention 和 sub_operate"""
+    """
+        会话状态结构，intentions 为纯字典列表，每个字典包含 main_intention 和 sub_operate
+    """
     messages: Annotated[List[BaseMessage], add_messages]
     intentions: Annotated[List[Dict[str, Any]], operator.add]   # 改为字典列表，使用 operator.add 追加
     discovery_data: Dict[str, Any]
@@ -50,11 +65,10 @@ class MedicalChat:
     def __init__(self, session_store: Optional[SessionStore] = None,
                  checkpointer: Optional[Any] = None):
         logger.info("初始化 MedicalChat 助手实例")
-        self._intent_sys_prompt = read_prompt(PROMPT_PATHS["intent_sys"])
-        self._intent_user_template = read_prompt(PROMPT_PATHS["intent_user"])
         self._model = get_base_chat_model()
         self._medical_data_discovery = MedicalDataDiscovery()
         self._knowledge_query_tools = Neo4jQueryTools()
+        self.prompt_paths = default_config.PROMPT_PATHS
 
         # 持久化组件（二选一）
         self._session_store = session_store
@@ -89,11 +103,11 @@ class MedicalChat:
             sub_str = "、".join(sub_ops) if sub_ops else ""
             intent_history_str += f"第{i}轮意图：{main_intention}（细分：{sub_str}）\n"
 
-        prompt_user = PromptTemplate.from_template(self._intent_user_template).format(
+        prompt_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["intent_user"])).format(
             session_text=tmp_messages,
             intent_history=intent_history_str
         )
-        system_messages = [SystemMessage(content=self._intent_sys_prompt)]
+        system_messages = [SystemMessage(content=read_prompt(self.prompt_paths["intent_sys"]))]
         human_messages = [HumanMessage(content=prompt_user)]
 
         model_rsp = self._model.invoke(system_messages + human_messages)
@@ -120,6 +134,7 @@ class MedicalChat:
         logger.info("medical_data_discovery_node-进行医疗信息探寻")
         tmp_messages = state.get("messages", [])
         tmp_discovery_data = state.get("discovery_data", {})
+
         medical_discovery_data = self._medical_data_discovery.get_medical_data_discovery(tmp_messages, tmp_discovery_data)
 
         rst_discovery_data = {k: v for k, v in medical_discovery_data.items() if k != "messages"}
@@ -136,8 +151,8 @@ class MedicalChat:
         latest_intention = tmp_intentions[-1] if tmp_intentions else {}
         main_intention = latest_intention.get("main_intention", "")
 
-        prompt_medical_chat_answer_sys = read_prompt(PROMPT_PATHS["medical_chat_answer_sys"])
-        prompt_medical_chat_answer_user = PromptTemplate.from_template(PROMPT_PATHS["medical_chat_answer_user"]).format(
+        prompt_medical_chat_answer_sys = read_prompt(self.prompt_paths["medical_chat_answer_sys"])
+        prompt_medical_chat_answer_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["medical_chat_answer_user"])).format(
             input_messages = tmp_messages,
             input_discovery_data = tmp_discovery_data,
             input_intention = main_intention
@@ -150,12 +165,41 @@ class MedicalChat:
         logger.info("响应给用户的数据信息：" + model_rsp.content)
         return {"solution": model_rsp.content}
 
+    def other_query_node(self, state: MedicalChatState) -> Dict[str, str]:
+        """
+            其他询问的情况下，生成对应的处理
+        :param state:
+        :return:
+        """
+        tmp_messages = state.get("messages", [])
+        tmp_intentions = state.get("intentions", [])
+
+        tmp_system_prompt = """
+            根据会话信息对用户最新的内容信息进行回答，判断历史会话记录中，是否和当前回答存在关联。
+            如果存在关联需要结合历史会话和意图信息对内容进行回答。
+            如果不存在关联，直接对内容进行回答，并【提示：当前内容和历史会话无相关性】。
+        """
+        tmp_user_prompt = f"""
+            历史会话：
+                {tmp_messages[-5:-1]}
+            
+            意图信息：
+                {tmp_intentions[-2:-1]}
+        """
+        tmp_system_msg = [SystemMessage(content=tmp_system_prompt)]
+        tmp_user_msg = [HumanMessage(content=tmp_user_prompt)]
+
+        model_rsp = self._model.invoke(tmp_system_msg + tmp_user_msg)
+        logger.info("响应给用户的数据信息：" + model_rsp.content)
+        return {"solution": model_rsp.content}
+
+
     def medication_data_discovery_node(self, state: MedicalChatState) -> Dict[str, Dict[str, Any]]:
         """根据当前的会话信息获取对应的药物内容"""
         tmp_messages = state.get("messages", [])
 
-        prompt_medication_keyword_sys = read_prompt(PROMPT_PATHS["medication_keyword_sys"])
-        prompt_medication_keyword_user = PromptTemplate.from_template(PROMPT_PATHS["medication_keyword_user"]).format(
+        prompt_medication_keyword_sys = read_prompt(self.prompt_paths["medication_keyword_sys"])
+        prompt_medication_keyword_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["medication_keyword_user"])).format(
             input_messages = tmp_messages[-1]
         )
         system_messages = [SystemMessage(content=prompt_medication_keyword_sys)]
@@ -197,10 +241,14 @@ class MedicalChat:
         logger.info("chat_intent_choice_node 进入【症状信息】或【药物信息】探寻")
         tmp_messages = state.get("messages", [])
         logger.info(f"最新会话信息：{tmp_messages[-1]}")
+        tmp_intentions = state.get("intentions", [])
+        tmp_discovery_data = state.get("discovery_data", {})
 
-        prompt_chat_intent_choice_sys = read_prompt(PROMPT_PATHS["chat_intent_choice_sys"])
-        prompt_chat_intent_choice_user = PromptTemplate.from_template(PROMPT_PATHS["chat_intent_choice_user"]).format(
-            input_messages = tmp_messages[-1]
+        prompt_chat_intent_choice_sys = read_prompt(self.prompt_paths["chat_intent_choice_sys"])
+        prompt_chat_intent_choice_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["chat_intent_choice_user"])).format(
+            input_messages = tmp_messages[-1],
+            discovery_data = tmp_intentions,
+            main_intention = tmp_discovery_data
         )
         system_messages = [SystemMessage(content=prompt_chat_intent_choice_sys)]
         user_messages = [HumanMessage(content=prompt_chat_intent_choice_user)]
@@ -209,7 +257,10 @@ class MedicalChat:
         logger.info("响应给用户的数据信息：" + model_rsp.content)
         if model_rsp.content == "symptoms_inquiry":
             return {"chat_intention_router": "symptoms_inquiry"}
-        return {"chat_intention_router": "medication_inquiry"}
+        elif model_rsp.content == "medication_inquiry":
+            return {"chat_intention_router": "medication_inquiry"}
+        return {"chat_intention_router": "symptoms_inquiry"}
+        # return {"chat_intention_router": "other_query"}
 
     def chat_medical_router(self, state: MedicalChatState) -> str:
         """
@@ -239,13 +290,17 @@ class MedicalChat:
         workflow.add_node("medical_data_discovery_node", self.medical_data_discovery_node)
         workflow.add_node("answer_question_node", self.answer_question_node)
 
+        # 其他情况信息探寻
+        workflow.add_node("other_query_node", self.other_query_node)
+
         # 【症状探寻】和【疾病探寻】路由
         workflow.add_conditional_edges(
             "chat_intent_choice_node",
             self.chat_medical_router,
             {
                 "medication_inquiry": "medication_data_discovery_node",
-                "symptoms_inquiry": "medical_intention_search_node"
+                "symptoms_inquiry": "medical_intention_search_node",
+                "other_query": "other_query_node"
             }
         )
 
@@ -258,6 +313,9 @@ class MedicalChat:
         # 药物信息探寻路径
         workflow.add_edge("medication_data_discovery_node", "answer_question_node")
         workflow.add_edge("answer_question_node", END)
+
+        # 其他提问回答处理
+        workflow.add_edge("other_query_node", END)
 
         # 编译时若提供了 checkpointer，则传入
         if self._checkpointer is not None:
