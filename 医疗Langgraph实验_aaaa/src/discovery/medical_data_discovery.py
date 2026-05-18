@@ -4,10 +4,13 @@
 
 import json
 import logging
+import os
+import sys
 from typing import Dict, Any, List, Annotated, TypedDict, Literal
 
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, SystemMessage
 from langchain_core.prompts import PromptTemplate
+from langchain_ollama import ChatOllama
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
@@ -16,47 +19,25 @@ from pydantic import BaseModel, Field
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-import os
-import sys
-# 导入独立子图构建函数
-root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
+# ---------- 路径设置 ----------
+# 当前文件: src/discovery/medical_data_discovery.py（假设目录结构）
+# 向上两级到达项目根目录（即 src/ 的父目录）
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
-# 将项目根目录添加到 Python 的模块搜索路径中
-if root_path not in sys.path:
-    sys.path.append(root_path)
+# ---------- 导入项目内部模块 ----------
 try:
-    from container.container import service_container
-    from hit_module.hit_generate.knowledge_hit_generate_graph import DiseaseDataHitGenService
-    from utils.common_utils import read_prompt, safe_json_parse, get_base_chat_model
-    from tools.knowledge_graph_tools import Neo4jQueryTools
-    from tools.rag_module import KnowledgeBaseService
-    from hit_module.hit_search.knowledge_hit_search_graph import DiseaseDataSearchService
-except ImportError:
+    from src.container.container import service_container
+    from src.hit_module.hit_generate.knowledge_hit_generate_graph import DiseaseDataHitGenService
+    from src.utils.common_utils import read_prompt, safe_json_parse, get_base_chat_model
+    from src.tools.knowledge_graph_tools import Neo4jQueryTools
+    from src.tools.rag_module import KnowledgeBaseService
+    from src.hit_module.hit_search.knowledge_hit_search_graph import DiseaseDataSearchService
+    from config.default_config import config as default_config
+except ImportError as e:
     raise RuntimeError(f"导入模块失败")
 
-PROMPT_PATHS = {
-    "sufficiency_decision_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_sufficiency_decision_sys.txt",
-    "sufficiency_decision_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_sufficiency_decision_user.txt",
-    "summary_disease_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_summary_disease_sys.txt",
-    "summary_disease_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_summary_disease_user.txt",
-    "extract_disease_name_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_extract_disease_name_sys.txt",
-    "extract_disease_name_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_extract_disease_name_user.txt",
-    "disease_analysis_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_disease_analysis_sys.txt",
-    "disease_analysis_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_disease_analysis_user.txt",
-    "concomitant_symptoms_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_concomitant_symptoms_sys.txt",
-    "concomitant_symptoms_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_concomitant_symptoms_user.txt",
-    "generate_solution_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_generate_solution_sys.txt",
-    "generate_solution_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_generate_solution_user.txt",
-    "extract_disease_info_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_extract_disease_info_sys.txt",
-    "extract_disease_info_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_extract_disease_info_user.txt",
-    "chief_complaint_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_chief_complaint_sys.txt",
-    "chief_complaint_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_chief_complaint_user.txt",
-    "missing_questions_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_missing_questions_sys.txt",
-    "missing_questions_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_missing_questions_user.txt",
-    "ask_question_by_symptoms_sys": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_ask_question_by_symptoms_sys.txt",
-    "ask_question_by_symptoms_user": "D:/PythonProjects/AiTools/医疗Langgraph实验/src/prompt/discover/prompt_ask_question_by_symptoms_user.txt",
-
-}
 
 # 现病诱因 (TypedDict 版本)
 class PresentIllness(TypedDict, total=False):
@@ -76,7 +57,6 @@ class MedicalInquiryState(TypedDict):
     existing_knowledge_supplement: Dict[str, Any]  # 当信息不充足时，使用当前数据信息，查询可能存在的病症，提供参考，从RAG检索到的医学知识
     missing_return_messages: str
     # 补充信息
-    is_first_search_hit: bool  # stepA 判断结果：当前信息是否足够
     is_sufficient: bool  # stepA 判断结果：当前信息是否足够
     missing_info: List[str]  # 缺失的病症信息项（如“疼痛部位”“持续时间”）
     solution: str  # 生成的解决方案（诊断建议/下一步行动）
@@ -124,17 +104,22 @@ class SolutionOutput(BaseModel):
 class MedicalDataDiscovery:
 
     def __init__(self):
-        # TODO 重写为单例模式
         # 初始化模型
-        self.ollama_model = get_base_chat_model()
+        self.ollama_model = ChatOllama(
+            model=default_config.OLLAMA_CONFIG["model"],
+            base_url=default_config.OLLAMA_CONFIG["base_url"],
+            temperature=default_config.OLLAMA_CONFIG["temperature"]
+        )
         # RAG 查询工具
-        self.rag_service = KnowledgeBaseService()
+        self.rag_service = service_container.rag
         # 知识图谱查询工具
-        self.knowledge_query_tools = Neo4jQueryTools()
+        self.knowledge_query_tools = service_container.neo4j
         # 构建查询命中工具
-        self.analysis_db_client = DiseaseDataHitGenService()
+        self.analysis_db_client = service_container.hit_gen
         # 构建查询命中工具
-        self.search_hit_client = DiseaseDataSearchService()
+        self.search_hit_client = service_container.hit_search
+        # 提示词
+        self.prompt_paths = default_config.PROMPT_PATHS
 
     def get_model_chief_complaint(self, state: MedicalInquiryState) -> Dict[str, Any]:
         # ----- 日志 -----
@@ -143,8 +128,8 @@ class MedicalDataDiscovery:
         # ----------------
         tmp_messages = state["messages"]
 
-        chief_complaint_sys = read_prompt(PROMPT_PATHS["chief_complaint_sys"])
-        chief_complaint_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["chief_complaint_user"])).format(
+        chief_complaint_sys = read_prompt(self.prompt_paths["chief_complaint_sys"])
+        chief_complaint_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["chief_complaint_user"])).format(
             input_data = state["chief_complaint"],
             input_messages = tmp_messages[-1].content
         )
@@ -166,8 +151,8 @@ class MedicalDataDiscovery:
         # ----- 日志 -----
         logger.info("[节点] get_present_illness - 开始提取现病史")
 
-        extract_disease_info_sys = read_prompt(PROMPT_PATHS["extract_disease_info_sys"])
-        extract_disease_info_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["extract_disease_info_user"])).format(
+        extract_disease_info_sys = read_prompt(self.prompt_paths["extract_disease_info_sys"])
+        extract_disease_info_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["extract_disease_info_user"])).format(
             input_message = state["messages"][-1],
             input_present_illness = state["present_illness"]
         )
@@ -194,8 +179,8 @@ class MedicalDataDiscovery:
         logger.info("[节点] get_concomitant_symptoms - 开始提取伴随症状")
         tmp_messages: List[str] = state["messages"]
 
-        prompt_concomitant_symptoms_sys = read_prompt(PROMPT_PATHS["concomitant_symptoms_sys"])
-        prompt_concomitant_symptoms_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["concomitant_symptoms_user"])).format(
+        prompt_concomitant_symptoms_sys = read_prompt(self.prompt_paths["concomitant_symptoms_sys"])
+        prompt_concomitant_symptoms_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["concomitant_symptoms_user"])).format(
             input_message = tmp_messages[-1],
             input_associated_symptoms=state["associated_symptoms"],
             input_symptom_absent=state["symptom_absent"]
@@ -252,8 +237,8 @@ class MedicalDataDiscovery:
         # 修改：将消息列表转为文本，避免直接打印消息对象
         messages_text = "\n".join([str(m.content) for m in state.get("messages", [])])
 
-        prompt_medical_chat_answer_sys = read_prompt(PROMPT_PATHS["sufficiency_decision_sys"])
-        prompt_medical_chat_answer_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["sufficiency_decision_user"])).format(
+        prompt_medical_chat_answer_sys = read_prompt(self.prompt_paths["sufficiency_decision_sys"])
+        prompt_medical_chat_answer_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["sufficiency_decision_user"])).format(
             chief_complaint =chief,
             present_illness=present,
             associated_symptoms=associated,
@@ -271,7 +256,7 @@ class MedicalDataDiscovery:
         logger.info(f"  缺失信息: {decision.missing_info.possible_diagnoses}")
         logger.info(f"  下一步操作: {decision.missing_info.next_actions}")
         logger.info(f"  提示: {decision.missing_info.disclaimer}")
-        logger.info(f"  置信度: {decision.confidenc}")
+        logger.info(f"  置信度: {decision.confidence}")
 
         return {
             "is_sufficient": True if decision.confidence >= 0.7 else False,
@@ -323,8 +308,8 @@ class MedicalDataDiscovery:
             context_str = "未检索到相关知识。"
             logger.info(context_str)
 
-        prompt_disease_analysis_sys = read_prompt(PROMPT_PATHS["disease_analysis_sys"])
-        prompt_disease_analysis_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["disease_analysis_user"])).format(
+        prompt_disease_analysis_sys = read_prompt(self.prompt_paths["disease_analysis_sys"])
+        prompt_disease_analysis_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["disease_analysis_user"])).format(
             rag_text = results,
             knowledge_query_data=query_str
         )
@@ -360,8 +345,8 @@ class MedicalDataDiscovery:
             伴随症状：{', '.join(associated) if associated else '无'}，不存在症状：{', '.join(symptom_absent) if symptom_absent else '无'}。
         """
 
-        prompt_generate_solution_sys = read_prompt(PROMPT_PATHS["generate_solution_sys"])
-        prompt_generate_solution_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["generate_solution_user"])).format(
+        prompt_generate_solution_sys = read_prompt(self.prompt_paths["generate_solution_sys"])
+        prompt_generate_solution_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["generate_solution_user"])).format(
             input_data = input_data,
             rag_ctx=rag_ctx
         )
@@ -427,8 +412,8 @@ class MedicalDataDiscovery:
         # 将消息列表转为文本
         messages_text = "\n".join([str(m.content) for m in tmp_messages])
 
-        prompt_missing_questions_sys = read_prompt(PROMPT_PATHS["missing_questions_sys"])
-        prompt_missing_questions_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["missing_questions_user"])).format(
+        prompt_missing_questions_sys = read_prompt(self.prompt_paths["missing_questions_sys"])
+        prompt_missing_questions_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["missing_questions_user"])).format(
             messages_text = messages_text,
             missing_info=tmp_missing_info,
             existing_knowledge_supplement=tmp_existing_knowledge_supplement,
@@ -472,7 +457,7 @@ class MedicalDataDiscovery:
     def route_search_hit(state: MedicalInquiryState) -> Literal["search_hit_first_node", "classify_sufficiency_node"]:
         """条件边：根据是否首次命中选择节点"""
         # 注意：state.get("is_first_search_hit", False) 默认 False，但初始状态已设为 True
-        choice = "search_hit_first_node" if state.get("is_first_search_hit", False) else "classify_sufficiency_node"
+        choice = "search_hit_first_node" if len(state.get("messages", [])) == 0 else "classify_sufficiency_node"
         logger.info(f"\n[路由] concomitant_symptoms_node → {choice}")
         return choice
 
@@ -490,8 +475,8 @@ class MedicalDataDiscovery:
         """
         chief_complaint = state["chief_complaint"]
 
-        ask_question_by_symptoms_sys = read_prompt(PROMPT_PATHS["ask_question_by_symptoms_sys"])
-        ask_question_by_symptoms_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["ask_question_by_symptoms_user"])).format(
+        ask_question_by_symptoms_sys = read_prompt(self.prompt_paths["ask_question_by_symptoms_sys"])
+        ask_question_by_symptoms_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["ask_question_by_symptoms_user"])).format(
             input_data=chief_complaint
         )
 
@@ -509,9 +494,9 @@ class MedicalDataDiscovery:
             # 修改：从字典中提取 text 字段
             rag_text = query_info.get("text", str(query_info))
 
-            extract_disease_name_sys = read_prompt(PROMPT_PATHS["extract_disease_name_sys"])
+            extract_disease_name_sys = read_prompt(self.prompt_paths["extract_disease_name_sys"])
             extract_disease_name_user = PromptTemplate.from_template(
-                read_prompt(PROMPT_PATHS["extract_disease_name_user"])).format(
+                read_prompt(self.prompt_paths["extract_disease_name_user"])).format(
                 rag_text = rag_text
             )
             extract_disease_name_sys_messages = [SystemMessage(content=extract_disease_name_sys)]
@@ -522,8 +507,8 @@ class MedicalDataDiscovery:
             # 知识图谱查询的数据
             knowledge_query_data = self.knowledge_query_tools.query_disease(disease_name)
 
-            prompt_chat_intent_choice_sys = read_prompt(PROMPT_PATHS["summary_disease_sys"])
-            prompt_chat_intent_choice_user = PromptTemplate.from_template(read_prompt(PROMPT_PATHS["summary_disease_user"])).format(
+            prompt_chat_intent_choice_sys = read_prompt(self.prompt_paths["summary_disease_sys"])
+            prompt_chat_intent_choice_user = PromptTemplate.from_template(read_prompt(self.prompt_paths["summary_disease_user"])).format(
                 knowledge_query_data=knowledge_query_data,
                 rag_text = rag_text,
                 symptom = {
