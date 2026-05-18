@@ -10,15 +10,11 @@
 > **可直接用于数据交换、编码和推理**，完全符合 SNOMED CT、ICD-11 等标准术语体系的原始概念。
 
 # 输出格式
+- 一般情况：
 {
 "chief_complaint_list": List[str]
 }
-示例：
-
-{
-"chief_complaint_list": ["咳嗽", "发热"]
-}
-如果没有提取到任何症状，输出空列表：
+- 如果没有提取到任何症状，输出空列表：
 "chief_complaint_list": []
 
 # 示例
@@ -34,10 +30,10 @@
   "chief_complaint_list": ["咳嗽"]
 }
 
-**输入文段**：右下腹持续性疼痛，伴恶心、呕吐一次。
+**输入文段**：今天早上气得很早。
 **输出**：
 {
-  "chief_complaint_list": ["腹痛", "恶心"]
+  "chief_complaint_list": [""]
 }
 
 # 约束
