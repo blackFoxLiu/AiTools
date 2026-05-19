@@ -1,0 +1,8 @@
+用户历史会话信息：
+{input_messages}
+
+探寻医疗知识信息：
+{input_discovery_data}
+
+当前意图：
+{input_intention}

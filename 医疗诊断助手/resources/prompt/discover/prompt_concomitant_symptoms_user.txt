@@ -1,0 +1,8 @@
+用户输入会话信息：
+{input_message}
+
+当前已经存在的并发症信息：
+{input_associated_symptoms}
+
+当前不存在的症状信息：
+{input_symptom_absent}

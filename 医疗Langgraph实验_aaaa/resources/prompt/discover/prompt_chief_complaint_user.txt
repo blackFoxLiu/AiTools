@@ -1,5 +1,0 @@
-会话历史主诉信息：
-{input_data}
-
-用户会话信息：
-{input_messages}

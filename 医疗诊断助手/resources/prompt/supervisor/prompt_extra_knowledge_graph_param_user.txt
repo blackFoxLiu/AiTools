@@ -1,0 +1,6 @@
+知识图谱规则
+{knowledge_graph_rule}
+
+用户输入
+- `node_name`: {node_name}
+- `keyword`: {keyword}

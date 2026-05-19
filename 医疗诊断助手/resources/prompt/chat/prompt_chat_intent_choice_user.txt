@@ -1,0 +1,8 @@
+用户历史会话信息：
+{input_messages}
+
+用户探寻知识信息：
+{discovery_data}
+
+当前意图：
+{main_intention}

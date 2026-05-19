@@ -1,0 +1,5 @@
+用户输入的会话数据：
+{session_text}
+
+历史意图分析数据：
+{intent_history}

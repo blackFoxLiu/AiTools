@@ -1,5 +1,0 @@
-知识图谱规则：
-{knowledge_graph_rule}
-
-新导入节点数据：
-{new_data}

@@ -1,2 +1,0 @@
-用户历史会话信息：
-{input_messages}

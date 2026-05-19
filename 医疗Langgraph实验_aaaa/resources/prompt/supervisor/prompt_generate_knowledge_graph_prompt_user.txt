@@ -1,2 +1,0 @@
-知识图谱的Node和Relation的规则：
-{input_user_data}

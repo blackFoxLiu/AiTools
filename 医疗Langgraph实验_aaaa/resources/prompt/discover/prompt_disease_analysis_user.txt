@@ -1,4 +1,0 @@
-用户输出：
-片段1：{knowledge_query_data}
-
-片段2：{rag_text}
