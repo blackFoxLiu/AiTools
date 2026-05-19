@@ -9,7 +9,7 @@ class Config:
     fine_model_path = "D:/endedingModel/bge-m3"  # 精排模型（BGE-M3）
     device = "cuda"  # 或 "cpu"
     use_gpu = True
-    PROJECT_ROOT_PATH = "/医疗诊断助手/resources/prompt"
+    PROJECT_ROOT_PATH = "/Medical_Diagnosis_Assistant/resources/prompt"
 
     PROMPT_PATHS = {
         "intent_sys": PROJECT_ROOT_PATH + "/prompt_medical_intent_info_sys.txt",
@@ -54,7 +54,7 @@ class Config:
         "ask_question_by_symptoms_user": PROJECT_ROOT_PATH + "/discover/prompt_ask_question_by_symptoms_user.txt",
     }
 
-    MEDICAL_CHAT_SESSION = "D:/PythonProjects/AiTools/医疗诊断助手/data/chat_sessions"
+    MEDICAL_CHAT_SESSION = "D:/PythonProjects/AiTools/Medical_Diagnosis_Assistant/data/chat_sessions"
 
     # NEO4J 配置
     NEO4J_URL = "neo4j://localhost:7687"

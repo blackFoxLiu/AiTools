@@ -1,8 +1,8 @@
 # module/utils/default_config.py
 class Config:
-    persist_directory = "D:/PythonProjects/AiTools/医疗诊断助手/data/databases/rag_db/chroma_db"
+    persist_directory = "D:/PythonProjects/AiTools/Medical_Diagnosis_Assistant/data/databases/rag_db/chroma_db"
     collection_name = "knowledge_base"
-    md5_path = "/医疗诊断助手/data/output/chroma_db_uploaded_md5.txt"
+    md5_path = "/Medical_Diagnosis_Assistant/data/output/chroma_db_uploaded_md5.txt"
     chunk_size = 800
     chunk_overlap = 50
     separators = ["\n\n"] # , "。", "！", "？", "；", " ", "", "\n"

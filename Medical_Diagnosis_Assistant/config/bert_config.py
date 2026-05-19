@@ -2,9 +2,9 @@ class Config:
     # BERT 文件路径
     ROBERTA_BERT = "D:/endedingModel/chinese-roberta-wwm-ext"
     # 训练数据文件结点
-    DATA_PATH = "D:/PythonProjects/AiTools/医疗诊断助手/data/output/medical_fine_ranked.jsonl"
+    DATA_PATH = "/Medical_Diagnosis_Assistant/data/output/medical_fine_ranked.jsonl"
     # 保存模型结点
-    SAVE_MODEL_PATH = "D:/PythonProjects/AiTools/医疗诊断助手/model_checkpoint"
+    SAVE_MODEL_PATH = "/Medical_Diagnosis_Assistant/model_checkpoint"
     # 最大序列长度
     MAX_LENGTH = 128
     # 训练轮数
