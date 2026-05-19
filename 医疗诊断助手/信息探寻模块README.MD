@@ -176,15 +176,6 @@ PROMPT_PATHS = {
 }
 ```
 
-** LLM 模型配置 **（在 get_base_chat_model 中）：
-```python
-ChatOllama(
-    model="qwen3:8b",          # 可替换为其他模型
-    base_url="http://127.0.0.1:11434",
-    temperature=0.0
-)
-```
-
 **RAG 检索参数**：`enhance_with_rag_node` 中 `rag_top_k=5`，`extract_missing_info_node` 中 `top_k=3`。
 **充分性判断阈值**：`confidence >= 0.7` 视为信息充足。
 **日志级别**：当前为 `logging.INFO`，可在 `basicConfig` 中调整。

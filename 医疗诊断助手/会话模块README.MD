@@ -28,8 +28,8 @@
 - **实现**：调用LLM解析用户消息，返回结构化JSON。
 
 ### 3.3 `medical_data_discovery_node` – 症状信息收集
-- **输入**：历史消息 + 已收集的探寻数据（`discovery_data`）  
-- **输出**：更新后的 `discovery_data`（如症状、持续时间、过敏史等）  
+- **输入**：历史消息 + 已收集的探寻数据（`discovery_data`）
+- **输出**：更新后的 `discovery_data`（如症状、持续时间、过敏史等）
 - **实现**：委托给 `MedicalDataDiscovery` 服务，综合RAG和规则逻辑。
 
 ### 3.4 `medication_data_discovery_node` – 药物信息收集
