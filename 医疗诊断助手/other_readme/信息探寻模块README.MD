@@ -90,7 +90,7 @@
 
 系统根据信息充分性、是否首次命中等因素，动态决定执行路径。
 
-![information_exploration_module.jpg](images/information_exploration_module.jpg)
+![information_exploration_module.jpg](../images/information_exploration_module.jpg)
 
 ### 4.1 初始流程
 ```text

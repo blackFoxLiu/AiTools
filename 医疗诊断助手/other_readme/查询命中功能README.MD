@@ -54,7 +54,7 @@
 - **第三步**：执行结果处理与报告生成节点
 - **结束**：返回最终状态（包含分析结果、查询结果和报告）
 
-![Hit Data Query - Knowledge Graph + RAG.jpg](images/Hit%20Data%20Query%20-%20Knowledge%20Graph%20%2B%20RAG.jpg)
+![Hit Data Query - Knowledge Graph + RAG.jpg](../images/Hit%20Data%20Query%20-%20Knowledge%20Graph%20+%20RAG.jpg)
 
 ## 5. 核心数据流
 

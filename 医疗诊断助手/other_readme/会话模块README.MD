@@ -52,7 +52,7 @@
 - **输出**：普通聊天回复，并提示用户当前话题与历史无关（若适用）
 
 ## 4. 路由与流程
-![会话模块功能流程图](images/session_module_diagram_logic_flowchart.jpg)
+![会话模块功能流程图](../images/session_module_diagram_logic_flowchart.jpg)
 
 ## 5. 持久化机制
 

@@ -62,7 +62,7 @@ graph TD
     M --> N[KGU: generate_rag_search_hit]
     N --> O[END]
 ```
-![Hit Data Generation - Knowledge Graph + RAG.jpg](images/Hit%20Data%20Generation%20-%20Knowledge%20Graph%20%2B%20RAG.jpg)
+![Hit Data Generation - Knowledge Graph + RAG.jpg](../images/Hit%20Data%20Generation%20-%20Knowledge%20Graph%20+%20RAG.jpg)
 
 ## 5. 持久化机制
 
